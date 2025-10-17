@@ -54,7 +54,7 @@ jobs:
 
       - name: Verify Build Output
         run: |
-          if [ -d dist ]; then
+          if [ -d build ]; then
             echo "Build successful"
           else
             echo "Build failed"
