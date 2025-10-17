@@ -1,0 +1,62 @@
+name: "PR Job: Server/UI Build Validation"
+
+on:
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  build-server:
+    runs-on: ubuntu-latest
+    name: Validate Server Build
+    defaults: { run: { working-directory: server } }
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+          cache-dependency-path: "server/requirements.txt"
+
+      - name: Install Python deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          if [ -f requirements-dev.txt ]; then pip install -r requirements-dev.txt; fi
+
+      - name: Run backend tests
+        run: |
+          if [ -d tests ]; then pytest -q; else echo "No tests yet"; fi
+
+  build-clientUI:
+    runs-on: ubuntu-latest
+    name: Validate Client Build
+    defaults: { run: { working-directory: client } }
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+          lfs: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20.16.0"
+          cache: "npm"
+          cache-dependency-path: "client/package-lock.json"
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Build Client
+        run: npm run build
+
+      - name: Verify Build Output
+        run: |
+          if [ -d dist ]; then
+            echo "Build successful"
+          else
+            echo "Build failed"
+            exit 1
+          fi
