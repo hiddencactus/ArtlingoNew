@@ -7,7 +7,7 @@ const TAB_ORDER = ["Train", "Drill catalog", "Upload"];
 
 export default function App() {
   const [tab, setTab] = useState("Train");
-  const [direction, setDirection] = useState("right"); 
+  const [direction, setDirection] = useState("right");
 
   const handleTabChange = (next) => {
     if (next === tab) return;
@@ -29,7 +29,11 @@ export default function App() {
       )}
       {tab === "Drill catalog" && (
         <div key={viewKey} className={`view view-slide-${direction}`}>
-          <Blank title="Drill catalog" activeTab={tab} onTabChange={handleTabChange} />
+          <Blank
+            title="Drill catalog"
+            activeTab={tab}
+            onTabChange={handleTabChange}
+          />
         </div>
       )}
       {tab === "Upload" && (

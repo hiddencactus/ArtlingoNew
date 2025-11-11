@@ -1,10 +1,14 @@
 import Topbar from "../components/TopBar";
 
 /**
- * Blank page 
- * Use for planning new pages. can just copy paste it
+ * Blank page
+ * Temporary placeholder for future pages. Copy and modify as needed.
  */
-export default function Blank({ title = "Blank", activeTab = title, onTabChange = () => {} }) {
+export default function Blank({
+  title = "Blank",
+  activeTab = title,
+  onTabChange = () => {},
+}) {
   return (
     <div className="page">
       <Topbar active={activeTab} onChange={onTabChange} />

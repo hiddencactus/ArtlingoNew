@@ -1,3 +1,4 @@
+// Imports
 import { useState } from "react";
 import Segmented from "../components/Segmented";
 import MetricBar from "../components/MetricBar";
@@ -9,12 +10,14 @@ export default function Work({ activeTab = "Train", onTabChange = () => {} }) {
   const [reps, setReps] = useState(50);
 
   const mastery = [
+    // TO-DO: Fetch real mastery data from backend
+    // Display core data
     { label: "L1 Straightness & Planning", value: 76 },
     { label: "L2 Speed Control", value: 58 },
     { label: "L3 Micro-stability", value: 41 },
     { label: "C1 Value Grouping", value: 64 },
     { label: "C3 Harmony Awareness", value: 28 },
-    { label: "C2 Accent Grouping", value: 52 }
+    { label: "C2 Accent Grouping", value: 52 },
   ];
 
   return (
@@ -34,7 +37,9 @@ export default function Work({ activeTab = "Train", onTabChange = () => {} }) {
                 />
                 <span>Auto-analyze</span>
               </label>
-              <button className="pill ghost" onClick={() => {}}>Start drill</button>
+              <button className="pill ghost" onClick={() => {}}>
+                Start drill
+              </button>
             </div>
           </header>
 
@@ -43,7 +48,11 @@ export default function Work({ activeTab = "Train", onTabChange = () => {} }) {
           </div>
 
           {/* Main drawing surface (placeholder black window ) . We can add the functionality and stuff later*/}
-          <div className="canvas-box" role="img" aria-label="Drawing surface (mock)"></div>
+          <div
+            className="canvas-box"
+            role="img"
+            aria-label="Drawing surface (mock)"
+          ></div>
 
           {/* Line Metrics as bars */}
           <div className="subpanel subpanel-roomy">
@@ -84,7 +93,9 @@ export default function Work({ activeTab = "Train", onTabChange = () => {} }) {
               </div>
             </div>
 
-            <button className="cta" onClick={() => {}}>Start Now</button>
+            <button className="cta" onClick={() => {}}>
+              Start Now
+            </button>
           </div>
 
           <div className="panel">

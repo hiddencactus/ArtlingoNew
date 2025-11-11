@@ -7,7 +7,8 @@ export default function Topbar({ active = "Train", onChange = () => {} }) {
 
   useEffect(() => {
     const handleClickOutside = (e) => {
-      if (menuRef.current && !menuRef.current.contains(e.target)) setMenuOpen(false);
+      if (menuRef.current && !menuRef.current.contains(e.target))
+        setMenuOpen(false);
     };
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
@@ -58,8 +59,12 @@ export default function Topbar({ active = "Train", onChange = () => {} }) {
           </button>
 
           <div className={`dropdown ${menuOpen ? "show" : ""}`} role="menu">
-            <button className="dropdown-item" role="menuitem">Settings</button>
-            <button className="dropdown-item" role="menuitem">Logout</button>
+            <button className="dropdown-item" role="menuitem">
+              Settings
+            </button>
+            <button className="dropdown-item" role="menuitem">
+              Logout
+            </button>
           </div>
         </div>
       </div>
