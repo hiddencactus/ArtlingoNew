@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 
 export default function Topbar({ active = "Train", onChange = () => {} }) {
-  const tabs = ["Train", "Drill catalog", "Upload"];
+  const tabs = ["Train", "Mastery", "Upload"];
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef(null);
 
