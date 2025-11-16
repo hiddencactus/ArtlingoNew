@@ -1,29 +1,29 @@
-// Imports
 import { useState } from "react";
-import MetricBar from "../components/MetricBar";
 import Topbar from "../components/TopBar";
-
-const TOOL_BTN_BASE = "flex h-10 w-10 items-center justify-center rounded-full text-xs font-semibold";
-const TOOL_BTN = `${TOOL_BTN_BASE} bg-[var(--panel)] text-[var(--text)] hover:bg-[var(--panel)]/90`;
-const TOOL_BTN_ACTIVE = `${TOOL_BTN_BASE} bg-[var(--primary)] text-[var(--primary-ink)] shadow-sm`;
 
 export default function Work({ activeTab = "Train", onTabChange = () => {} }) {
   const [autoAnalyze, setAutoAnalyze] = useState(true);
 
-  const [hasSuggestion] = useState(true); // TO-DO: Fetch from backend. Button to show suggestion over canvas
+  const [hasSuggestion] = useState(true); // TODO: Fetch from backend. Button to show suggestion over canvas
   const [showSuggestion, setShowSuggestion] = useState(false);
 
-  // moved to separate mastery page
-  // const mastery = [
-  //   // TO-DO: Fetch real mastery data from backend
-  //   // Display core data
-  //   { label: "L1 Straightness & Planning", value: 76 },
-  //   { label: "L2 Speed Control", value: 58 },
-  //   { label: "L3 Micro-stability", value: 41 },
-  //   { label: "C1 Value Grouping", value: 64 },
-  //   { label: "C3 Harmony Awareness", value: 28 },
-  //   { label: "C2 Accent Grouping", value: 52 },
-  // ];
+  const [layers, setLayers] = useState([  //LAYER MANAGEMENT SYSTEM
+    { id: 1, name: "Layer 1", active: true }, 
+  ]);     //id is the unique identifier for each layer, name is the display name, active indicates if it's the selected layer
+
+  const addLayer = () => {
+    setLayers((prev) => {
+      const nextId = prev.length ? prev[prev.length - 1].id + 1 : 1;
+      return [
+        ...prev.map((layers) => ({ ...layers, active: false })),  //deactivate existing layers
+        { id: nextId, name: `Layer ${nextId}`, active: true },  //add new active layer
+      ];
+    });
+  };
+
+  const selectLayer = (id) => {
+    setLayers((prev) => prev.map((l) => ({ ...l, active: l.id === id })));
+  };
 
   return (
     <div className="page min-h-screen flex flex-col">
@@ -75,55 +75,58 @@ export default function Work({ activeTab = "Train", onTabChange = () => {} }) {
           </div>
         </section>
 
-      {/* replace with icons laters */}
-       <aside
-          className="flex flex-col justify-between items-center w-16 flex-shrink-0
+        {/* replace with icons laters */}
+        <aside
+          className="flex flex-col items-center w-16 flex-shrink-0
                      rounded-3xl bg-[var(--panel-2)]
                      shadow-[0_18px_60px_rgba(0,0,0,0.6)] py-3 px-2"
         >
-          {/* painting tools */}
-          <div className="flex flex-col gap-2 mb-4">
-            <button className={TOOL_BTN_ACTIVE} title="Brush">
+          {/* tools */}
+          <div className="flex flex-col gap-2 mb-3">
+            <button className="tool-btn tool-btn--active" title="Brush">
               B
             </button>
-            <button className={TOOL_BTN} title="Eraser">
+            <button className="tool-btn" title="Eraser">
               E
             </button>
-            <button className={TOOL_BTN} title="Color picker">
+            <button className="tool-btn" title="Color picker">
               C
             </button>
-          </div>
-
-          {/* overlays (harmony, values, etc.) */}
-          <div className="flex flex-col gap-2 mb-4">
-            <button
-              className="flex h-10 w-10 items-center justify-center rounded-full
-                         bg-[var(--panel)] text-[var(--text)]
-                         text-xs font-semibold hover:bg-[var(--panel)]/90"
-              title="Toggle harmony overlay"
-            >
+            <button className="tool-btn" title="Toggle harmony overlay">
               H
             </button>
-            <button
-              className="flex h-10 w-10 items-center justify-center rounded-full
-                         bg-[var(--panel)] text-[var(--text)]
-                         text-xs font-semibold hover:bg-[var(--panel)]/90"
-              title="Toggle value map"
-            >
+            <button className="tool-btn" title="Toggle value map">
               V
             </button>
           </div>
 
-          {/* layers */}
-          <div className="flex flex-col gap-2">
-            <button
-              className="flex h-10 w-10 items-center justify-center rounded-full
-                         bg-[var(--panel)] text-[var(--text)]
-                         text-xs font-semibold hover:bg-[var(--panel)]/90"
-              title="Layers"
-            >
-              L
-            </button>
+          <div className="h-px w-8 bg-black/40 mb-3" />
+
+          {/* layer system */}
+          <div className="flex flex-col items-center gap-2 w-full">
+            <span className="text-[9px] tracking-wide uppercase text-[var(--muted)]">
+              Layers
+            </span>
+            <div className="flex flex-col gap-1 w-full items-center">
+              {layers.map((layer) => (
+                <button
+                  key={layer.id}
+                  className={`layer-btn ${layer.active ? "layer-btn--active" : ""}`}
+                  onClick={() => selectLayer(layer.id)}
+                  title={layer.name}
+                >
+                  {layer.name.replace("Layer ", "L")}
+                </button>
+              ))}
+              <button
+                type="button"
+                onClick={addLayer}
+                className="layer-btn text-lg leading-none"
+                title="Add layer"
+              >
+                +
+              </button>
+            </div>
           </div>
         </aside>
       </div>

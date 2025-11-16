@@ -406,6 +406,42 @@ body {
   }
 }
 
+/* Tool buttons (B, E, C, H, V, L) */
+.tool-btn {
+  @apply flex h-10 w-10 items-center justify-center rounded-full text-xs font-semibold;
+  background-color: var(--panel);
+  color: var(--text);
+  transition: background-color 120ms ease-out, transform 120ms ease-out;
+}
+
+.tool-btn:hover {
+  background-color: var(--panel-2);
+  transform: translateY(-1px);
+}
+
+.tool-btn--active {
+  background-color: var(--primary);
+  color: var(--primary-ink);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.6);
+}
+
+/* Layer chips in the mini layer stack */
+.layer-btn {
+  @apply flex items-center justify-center rounded-full text-[10px] font-medium h-6 w-12;
+  background-color: var(--panel);
+  color: var(--muted);
+  transition: background-color 120ms ease-out, color 120ms ease-out;
+}
+
+.layer-btn:hover {
+  background-color: var(--panel-2);
+}
+
+.layer-btn--active {
+  background-color: var(--primary);
+  color: var(--primary-ink);
+}
+
 /* ==== CONTROLS ==== */
 .row {
   display: flex;
