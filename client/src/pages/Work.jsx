@@ -10,6 +10,9 @@ const TOOL_BTN_ACTIVE = `${TOOL_BTN_BASE} bg-[var(--primary)] text-[var(--primar
 export default function Work({ activeTab = "Train", onTabChange = () => {} }) {
   const [autoAnalyze, setAutoAnalyze] = useState(true);
 
+  const [hasSuggestion] = useState(true); // TO-DO: Fetch from backend. Button to show suggestion over canvas
+  const [showSuggestion, setShowSuggestion] = useState(false);
+
   // moved to separate mastery page
   // const mastery = [
   //   // TO-DO: Fetch real mastery data from backend
@@ -39,9 +42,15 @@ export default function Work({ activeTab = "Train", onTabChange = () => {} }) {
                 />
                 <span>Auto-analyze</span>
               </label>
-              <button className="pill ghost" onClick={() => {}}>
-                Start drill
+
+              <button //show suggestion button
+                className="pill ghost"
+                disabled={!hasSuggestion}
+                onClick={() => hasSuggestion && setShowSuggestion((v) => !v)}
+              >
+                {showSuggestion ? "Hide suggestion" : "View suggestion"}
               </button>
+
             </div>
           </header>
 
@@ -49,12 +58,21 @@ export default function Work({ activeTab = "Train", onTabChange = () => {} }) {
             <span className="chip">Brush · Size 6 · #E4572E</span>
           </div>
 
-          {/* Main drawing surface (placeholder black window ) . We can add the functionality and stuff later*/}
+          {/* Main drawing surface (placeholder black window). */}
           <div
             className="canvas-box flex-1"
             role="img"
             aria-label="Drawing surface (mock)"
-          ></div>
+          >
+            {showSuggestion && (
+              <div className="canvas-suggestion-overlay">
+                {/* placeholder suggestion view – wire to real preview later */}
+                <div className="canvas-suggestion-label">
+                  Preview: suggested color fix
+                </div>
+              </div>
+            )}
+          </div>
         </section>
 
       {/* replace with icons laters */}
