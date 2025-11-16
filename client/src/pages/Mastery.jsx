@@ -18,7 +18,21 @@ export default function Mastery({
   return (
     <div className="page">
       <Topbar active={activeTab} onChange={onTabChange} />
-      <div className="page-body container">
+
+      
+      <div className="page-body container stack-24">
+
+        {/* Line Metrics moved from Train tab */}
+        <section className="panel">
+          <header className="panel-head">
+            <h2>Line Metrics</h2>
+          </header>
+          <div className="stack-14">
+            <MetricBar label="Straightness" value={82} />
+            <MetricBar label="Wobble" value={24} />
+          </div>
+        </section>
+
         <section className="panel">
           <header className="panel-head">
             <h2>Mastery</h2>

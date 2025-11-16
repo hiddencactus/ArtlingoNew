@@ -1,13 +1,14 @@
 // Imports
 import { useState } from "react";
-import Segmented from "../components/Segmented";
 import MetricBar from "../components/MetricBar";
 import Topbar from "../components/TopBar";
 
+const TOOL_BTN_BASE = "flex h-10 w-10 items-center justify-center rounded-full text-xs font-semibold";
+const TOOL_BTN = `${TOOL_BTN_BASE} bg-[var(--panel)] text-[var(--text)] hover:bg-[var(--panel)]/90`;
+const TOOL_BTN_ACTIVE = `${TOOL_BTN_BASE} bg-[var(--primary)] text-[var(--primary-ink)] shadow-sm`;
+
 export default function Work({ activeTab = "Train", onTabChange = () => {} }) {
   const [autoAnalyze, setAutoAnalyze] = useState(true);
-  const [length, setLength] = useState("Medium");
-  const [reps, setReps] = useState(50);
 
   // moved to separate mastery page
   // const mastery = [
@@ -22,11 +23,11 @@ export default function Work({ activeTab = "Train", onTabChange = () => {} }) {
   // ];
 
   return (
-    <div className="page">
+    <div className="page min-h-screen flex flex-col">
       <Topbar active={activeTab} onChange={onTabChange} />
-      <div className="page-body container grid-rail">
+      <div className="page-body container flex-1 flex gap-6 items-stretch">
         {/* Training Canvas */}
-        <section className="panel">
+        <section className="panel flex-1 min-w-0 flex flex-col">
           <header className="panel-head">
             <h2>Training Canvas</h2>
             <div className="row gap-12">
@@ -50,48 +51,59 @@ export default function Work({ activeTab = "Train", onTabChange = () => {} }) {
 
           {/* Main drawing surface (placeholder black window ) . We can add the functionality and stuff later*/}
           <div
-            className="canvas-box"
+            className="canvas-box flex-1"
             role="img"
             aria-label="Drawing surface (mock)"
           ></div>
-
-          {/* Line Metrics as bars */}
-          <div className="subpanel subpanel-roomy">
-            <h3>Line Metrics</h3>
-            <div className="stack-14">
-              <MetricBar label="Straightness" value={82} />
-              <MetricBar label="Wobble" value={24} />
-            </div>
-          </div>
         </section>
 
-       <aside className="tool-rail">
+      {/* replace with icons laters */}
+       <aside
+          className="flex flex-col justify-between items-center w-16 flex-shrink-0
+                     rounded-3xl bg-[var(--panel-2)]
+                     shadow-[0_18px_60px_rgba(0,0,0,0.6)] py-3 px-2"
+        >
           {/* painting tools */}
-          <div className="tool-rail-group">
-            <button className="tool-btn active" title="Brush">
+          <div className="flex flex-col gap-2 mb-4">
+            <button className={TOOL_BTN_ACTIVE} title="Brush">
               B
             </button>
-            <button className="tool-btn" title="Eraser">
+            <button className={TOOL_BTN} title="Eraser">
               E
             </button>
-            <button className="tool-btn" title="Color picker">
+            <button className={TOOL_BTN} title="Color picker">
               C
             </button>
           </div>
 
           {/* overlays (harmony, values, etc.) */}
-          <div className="tool-rail-group">
-            <button className="tool-btn" title="Toggle harmony overlay">
+          <div className="flex flex-col gap-2 mb-4">
+            <button
+              className="flex h-10 w-10 items-center justify-center rounded-full
+                         bg-[var(--panel)] text-[var(--text)]
+                         text-xs font-semibold hover:bg-[var(--panel)]/90"
+              title="Toggle harmony overlay"
+            >
               H
             </button>
-            <button className="tool-btn" title="Toggle value map">
+            <button
+              className="flex h-10 w-10 items-center justify-center rounded-full
+                         bg-[var(--panel)] text-[var(--text)]
+                         text-xs font-semibold hover:bg-[var(--panel)]/90"
+              title="Toggle value map"
+            >
               V
             </button>
           </div>
 
           {/* layers */}
-          <div className="tool-rail-group">
-            <button className="tool-btn" title="Layers">
+          <div className="flex flex-col gap-2">
+            <button
+              className="flex h-10 w-10 items-center justify-center rounded-full
+                         bg-[var(--panel)] text-[var(--text)]
+                         text-xs font-semibold hover:bg-[var(--panel)]/90"
+              title="Layers"
+            >
               L
             </button>
           </div>
