@@ -255,7 +255,58 @@ export default function Work({ activeTab = "Train", onTabChange = () => {} }) {
           <div className="canvas-toolbar">
             <span className="chip">
               Brush · Size {brushSize} · {color.toUpperCase()}
-            </span>
+           </span>
+
+            {/* Brush size + color controls */}
+            <div className="row gap-12">
+              {/* Size control */}
+              <label className="row gap-8">
+                <span>Size (px)</span>
+                <div className="row" style={{ gap: 4 }}>
+                  <button
+                    type="button"
+                    className="pill ghost"
+                    onClick={() =>
+                      setBrushSize((s) => Math.max(1, Math.min(100, s - 1)))
+                    }
+                  >
+                    -
+                  </button>
+                  <input
+                    className="input"
+                    type="number"
+                    min={1}
+                    max={100}
+                    value={brushSize}
+                    onChange={(e) => {
+                      const val = Number(e.target.value);
+                      if (Number.isNaN(val)) return;
+                      setBrushSize(Math.max(1, Math.min(100, val)));
+                    }}
+                    style={{ width: "64px" }}
+                  />
+                  <button
+                    type="button"
+                    className="pill ghost"
+                    onClick={() =>
+                      setBrushSize((s) => Math.max(1, Math.min(100, s + 1)))
+                    }
+                  >
+                    +
+                  </button>
+                </div>
+              </label>
+
+              {/* Color control */}
+              <label className="row gap-8">
+                <span>Color</span>
+               <input
+                  type="color"
+                  value={color}
+                  onChange={(e) => setColor(e.target.value)}
+                />
+              </label>
+            </div>
           </div>
 
           {/* Main drawing surface: stacked canvases for each layer */}
