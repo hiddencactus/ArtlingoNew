@@ -2,8 +2,9 @@ import { useState, useMemo } from "react";
 import "./styles/globals.css";
 import Work from "./pages/Work";
 import Blank from "./pages/Blank";
+import Mastery from "./pages/Mastery";
 
-const TAB_ORDER = ["Train", "Drill catalog", "Upload"];
+const TAB_ORDER = ["Train", "Mastery", "Upload"];
 
 export default function App() {
   const [tab, setTab] = useState("Train");
@@ -27,13 +28,9 @@ export default function App() {
           <Work activeTab={tab} onTabChange={handleTabChange} />
         </div>
       )}
-      {tab === "Drill catalog" && (
+      {tab === "Mastery" && (
         <div key={viewKey} className={`view view-slide-${direction}`}>
-          <Blank
-            title="Drill catalog"
-            activeTab={tab}
-            onTabChange={handleTabChange}
-          />
+          <Mastery activeTab={tab} onTabChange={handleTabChange} />
         </div>
       )}
       {tab === "Upload" && (
