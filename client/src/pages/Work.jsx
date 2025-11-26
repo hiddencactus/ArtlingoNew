@@ -6,6 +6,7 @@ import LayerRail from "../components/LayerRail";
 
 /* Work (Main) page,  */
 export default function Work({ activeTab = "Train", onTabChange = () => {} }) {
+  const [autoAnalyze, setAutoAnalyze] = useState(true);
   const [hasSuggestion] = useState(true);
   const [showSuggestion, setShowSuggestion] = useState(false);
 
