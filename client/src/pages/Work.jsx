@@ -4,8 +4,8 @@ import Toolbar from "../components/ToolBar";
 import CanvasBoard from "../components/CanvasBoard";
 import LayerRail from "../components/LayerRail";
 
+/* Work (Main) page,  */
 export default function Work({ activeTab = "Train", onTabChange = () => {} }) {
-  const [autoAnalyze, setAutoAnalyze] = useState(true);
   const [hasSuggestion] = useState(true);
   const [showSuggestion, setShowSuggestion] = useState(false);
 
@@ -44,6 +44,7 @@ export default function Work({ activeTab = "Train", onTabChange = () => {} }) {
             <h2>Training Canvas</h2>
           </header>
 
+          {/*TO-DO: finish Toolbar for tools and settings */}
           <Toolbar
             autoAnalyze={autoAnalyze}
             setAutoAnalyze={setAutoAnalyze}
