@@ -1,18 +1,20 @@
 import { useState, useRef, useEffect } from "react";
 import Topbar from "../components/TopBar";
+import MetricBar from "../components/MetricBar"; // <--- IMPORTED THIS
 
 export default function Work({ activeTab = "Train", onTabChange = () => {} }) {
   const [autoAnalyze, setAutoAnalyze] = useState(true);
 
-  const [hasSuggestion] = useState(true);
+  const [hasSuggestion, setHasSuggestion] = useState(false);
   const [showSuggestion, setShowSuggestion] = useState(false);
-  const [suggestionResult, setSuggestionResult] = useState(null);  //store the most recent suggestion result  
+  const [suggestionResult, setSuggestionResult] = useState(null); 
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
 
   const [layers, setLayers] = useState([
     { id: "layer-1", name: "Layer 1", visible: true },
   ]);
 
-  const [tool, setTool] = useState("Brush"); // "Brush" | "Eraser" | "Fill"
+  const [tool, setTool] = useState("Brush");
   const [brushSize, setBrushSize] = useState(6);
   const [color, setColor] = useState("#E4572E");
 
@@ -62,6 +64,8 @@ export default function Work({ activeTab = "Train", onTabChange = () => {} }) {
       historiesRef.current[layerId].history.push(img);
       historiesRef.current[layerId].redo = [];
     }
+    
+    setHasSuggestion(true);
   };
 
   useEffect(() => {
@@ -71,17 +75,16 @@ export default function Work({ activeTab = "Train", onTabChange = () => {} }) {
 
       if (!historiesRef.current[layer.id]) {
         if (index === 0) {
-          // base layer: white background
           ctx.fillStyle = "#FFFFFF";
           ctx.fillRect(0, 0, canvas.width, canvas.height);
         } else {
-          // higher layers: transparent
           ctx.clearRect(0, 0, canvas.width, canvas.height);
         }
         const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
         historiesRef.current[layer.id] = { history: [img], redo: [] };
       }
     });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [layers.length]);
 
   const handlePointerDown = (e) => {
@@ -104,7 +107,6 @@ export default function Work({ activeTab = "Train", onTabChange = () => {} }) {
     }
 
     isDrawingRef.current = true;
-
     const now = performance.now();
     lastPointRef.current = {
       x: point.x,
@@ -140,15 +142,13 @@ export default function Work({ activeTab = "Train", onTabChange = () => {} }) {
 
     const now = performance.now();
     const dt = now - last.time || 1;
-
     const dx = point.x - last.x;
     const dy = point.y - last.y;
     const dist = Math.sqrt(dx * dx + dy * dy);
-    const speed = dist / dt; // px per ms
+    const speed = dist / dt; 
 
     const rawPressure = typeof e.pressure === "number" ? e.pressure : 0;
     const pressure = rawPressure > 0 ? rawPressure : 1;
-
     const tiltX = typeof e.tiltX === "number" ? e.tiltX : 0;
     const tiltFactor = 1 + (Math.min(Math.abs(tiltX), 90) / 90) * 0.2;
 
@@ -182,8 +182,6 @@ export default function Work({ activeTab = "Train", onTabChange = () => {} }) {
     isDrawingRef.current = false;
     lastPointRef.current = null;
     snapshotCanvas();
-
-    // could auto-trigger analyze here if autoAnalyze === true
   };
 
   const addLayer = () => {
@@ -220,51 +218,45 @@ export default function Work({ activeTab = "Train", onTabChange = () => {} }) {
     }
   };
 
-  // merge visible layers into an offscreen canvas and return a PNG blob
   const exportMergedPNGBlob = async () => {
     const layerCanvases = layers
       .map((layer) => ({
         layer,
         canvas: canvasRefs.current[layer.id],
       }))
-      .filter((entry) => entry.canvas && entry.layer.visible);    //check if the layer is visible 
+      .filter((entry) => entry.canvas && entry.layer.visible); 
 
     if (layerCanvases.length === 0) return null;
 
-      //create blank canvas which is hidden 
     const baseCanvas = layerCanvases[0].canvas;
     const merged = document.createElement("canvas");
-    merged.width = baseCanvas.width;  // use same dimensions as a normal canvas 
+    merged.width = baseCanvas.width; 
     merged.height = baseCanvas.height;
-    const mctx = merged.getContext("2d");   //get context for whats on it 
+    const mctx = merged.getContext("2d"); 
 
-    // white background so transparent regions don't become black
     mctx.fillStyle = "#FFFFFF";
-    mctx.fillRect(0, 0, merged.width, merged.height);   //without this , the image result was black (tho it could just need tweaking)
+    mctx.fillRect(0, 0, merged.width, merged.height); 
 
-    //copy each layer onto the hidden canvas and make a merged canvas
     layerCanvases.forEach(({ canvas }) => {
       mctx.drawImage(canvas, 0, 0);
     });
 
-    // return png 
     return new Promise((resolve) => {
       merged.toBlob((blob) => resolve(blob), "image/png");
     });
   };
 
   const analyzeDrawing = async () => {
+    setIsAnalyzing(true);
     const blob = await exportMergedPNGBlob();
     if (!blob) {
       console.warn("No merged image available");
+      setIsAnalyzing(false);
       return null;
     }
 
-    // build   form data
     const formData = new FormData();
     formData.append("file", blob, "drawing.png");
-
-    // send to backend. Right now it's just a local link 
 
     try {
       const res = await fetch("http://localhost:5000/api/analyze", {
@@ -274,19 +266,21 @@ export default function Work({ activeTab = "Train", onTabChange = () => {} }) {
 
       if (!res.ok) {
         console.error("Backend error:", res.status);
+        setIsAnalyzing(false);
         return null;
       }
 
       const data = await res.json();
       setSuggestionResult(data);
+      setIsAnalyzing(false);
       return data;
     } catch (err) {
       console.error("Error analyzing drawing", err);
+      setIsAnalyzing(false);
       return null;
     }
   };
 
-    // new behaviour for the suggestion button  (though it isnt fully implemented , the idea is for it to overlay the suggestions )
   const handleSuggestionClick = async () => {
     if (!hasSuggestion) return;
 
@@ -298,10 +292,18 @@ export default function Work({ activeTab = "Train", onTabChange = () => {} }) {
     }
   };
 
+  const applySuggestion = () => {
+      if (suggestionResult?.feedback?.suggestion_color) {
+          setColor(suggestionResult.feedback.suggestion_color);
+          setTool("Brush");
+      }
+  };
+
   return (
     <div className="page min-h-screen flex flex-col">
       <Topbar active={activeTab} onChange={onTabChange} />
       <div className="page-body container flex-1 flex gap-6 items-stretch">
+        
         {/* Training Canvas */}
         <section className="panel flex-1 min-w-0 flex flex-col">
           <header className="panel-head">
@@ -318,10 +320,10 @@ export default function Work({ activeTab = "Train", onTabChange = () => {} }) {
 
               <button
                 className="pill ghost"
-                disabled={!hasSuggestion}
+                disabled={!hasSuggestion || isAnalyzing}
                 onClick={handleSuggestionClick}
               >
-                {showSuggestion ? "Hide suggestion" : "View suggestion"}
+                {isAnalyzing ? "Analyzing..." : (showSuggestion ? "Hide suggestion" : "View suggestion")}
               </button>
             </div>
           </header>
@@ -331,9 +333,7 @@ export default function Work({ activeTab = "Train", onTabChange = () => {} }) {
               Brush · Size {brushSize} · {color.toUpperCase()}
             </span>
 
-            {/* Brush size + color controls */}
             <div className="row gap-12">
-              {/* Size control */}
               <label className="row gap-8">
                 <span>Size (px)</span>
                 <div className="row" style={{ gap: 4 }}>
@@ -371,7 +371,6 @@ export default function Work({ activeTab = "Train", onTabChange = () => {} }) {
                 </div>
               </label>
 
-              {/* Color control */}
               <label className="row gap-8">
                 <span>Color</span>
                 <input
@@ -383,8 +382,7 @@ export default function Work({ activeTab = "Train", onTabChange = () => {} }) {
             </div>
           </div>
 
-          {/* Main drawing surface: stacked canvases for each layer */}
-          <div className="canvas-box flex-1" ref={canvasContainerRef}>
+          <div className="canvas-box flex-1 relative" ref={canvasContainerRef}>
             {layers.map((layer) => (
               <canvas
                 key={layer.id}
@@ -408,13 +406,44 @@ export default function Work({ activeTab = "Train", onTabChange = () => {} }) {
               />
             ))}
 
-            {showSuggestion && (                                
-              <div className="canvas-suggestion-overlay">
-                <div className="canvas-suggestion-label">
-                  {suggestionResult?.suggested_color
-                    ? `Suggested color: ${suggestionResult.suggested_color}`        // now use backend results 
-                    : "Preview: suggested color fix"}
-                </div>
+            {/* --- AI COACH HUD --- */}
+            {showSuggestion && suggestionResult && (                                
+              <div 
+                className="absolute top-4 right-4 bg-black/90 p-5 rounded-2xl border border-white/10 max-w-sm backdrop-blur-md shadow-2xl animate-in fade-in slide-in-from-top-4 duration-300"
+                style={{ zIndex: 50, width: '320px' }}
+              >
+                 {/* 1. Scores Visualization */}
+                 <div className="mb-5 flex flex-col gap-3">
+                     <h4 className="text-[10px] uppercase tracking-wider text-gray-400 font-bold">Real-time Metrics</h4>
+                     <MetricBar label="Harmony" value={suggestionResult.metrics.harmony} />
+                     <MetricBar label="Contrast" value={suggestionResult.metrics.value_grouping} />
+                     <MetricBar label="Lines" value={suggestionResult.metrics.straightness} />
+                 </div>
+
+                 {/* 2. Feedback Text */}
+                <p className="text-sm text-gray-200 mb-4 leading-relaxed border-t border-b border-white/10 py-3">
+                    {suggestionResult.feedback?.general || "Analysis complete."}
+                </p>
+
+                {/* 3. Action Button (The "Fix it" Button) */}
+                {suggestionResult.feedback?.suggestion_color && (
+                    <div className="flex flex-col gap-2">
+                         <span className="text-[10px] uppercase tracking-wider text-gray-400 font-bold">Recommended Action</span>
+                         <button 
+                            onClick={applySuggestion}
+                            className="flex items-center gap-3 p-2 rounded-lg bg-white/5 hover:bg-white/10 transition-colors border border-transparent hover:border-white/20 group"
+                        >
+                            <div 
+                                style={{ backgroundColor: suggestionResult.feedback.suggestion_color }} 
+                                className="w-8 h-8 rounded-full border-2 border-white shadow-sm"
+                            />
+                            <div className="flex flex-col items-start">
+                                <span className="text-xs font-bold text-white group-hover:text-blue-200">Use this color</span>
+                                <span className="text-[10px] text-gray-400">Click to apply to brush</span>
+                            </div>
+                         </button>
+                    </div>
+                )}
               </div>
             )}
 
@@ -428,13 +457,12 @@ export default function Work({ activeTab = "Train", onTabChange = () => {} }) {
           </div>
         </section>
 
-        {/* replace with icons later */}
+        {/* Sidebar Tools */}
         <aside
           className="flex flex-col items-center w-16 flex-shrink-0
                      rounded-3xl bg-[var(--panel-2)]
                      shadow-[0_18px_60px_rgba(0,0,0,0.6)] py-3 px-2"
         >
-          {/* tools */}
           <div className="flex flex-col gap-2 mb-3">
             <button
               className={`tool-btn ${
@@ -467,7 +495,6 @@ export default function Work({ activeTab = "Train", onTabChange = () => {} }) {
 
           <div className="h-px w-8 bg-black/40 mb-3" />
 
-          {/* layer system */}
           <div className="flex flex-col items-center gap-2 w-full">
             <span className="text-[9px] tracking-wide uppercase text-[var(--muted)]">
               Layers
