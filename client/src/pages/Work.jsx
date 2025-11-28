@@ -4,14 +4,14 @@ import Topbar from "../components/TopBar";
 export default function Work({ activeTab = "Train", onTabChange = () => {} }) {
   const [autoAnalyze, setAutoAnalyze] = useState(true);
 
-  const [hasSuggestion] = useState(true); // TODO: Fetch from backend. Button to show suggestion over canvas
+  const [hasSuggestion] = useState(true);
   const [showSuggestion, setShowSuggestion] = useState(false);
+  const [suggestionResult, setSuggestionResult] = useState(null);
 
-  const [layers, setLayers] = useState([  //LAYER MANAGEMENT SYSTEM
-    { id: "layer-1", name: "Layer 1", visible: true }, 
-  ]);     //id is the unique identifier for each layer, name is the display name, active indicates if it's the selected layer
+  const [layers, setLayers] = useState([
+    { id: "layer-1", name: "Layer 1", visible: true },
+  ]);
 
-  // CANVAS TOOL STATE
   const [tool, setTool] = useState("Brush"); // "Brush" | "Eraser" | "Fill"
   const [brushSize, setBrushSize] = useState(6);
   const [color, setColor] = useState("#E4572E");
@@ -19,13 +19,12 @@ export default function Work({ activeTab = "Train", onTabChange = () => {} }) {
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [activeLayerId, setActiveLayerId] = useState("layer-1");
 
-  const canvasRefs = useRef({}); // { [layerId]: HTMLCanvasElement }  ---Each layer has its own canvas that tracks its strokes. We dont want this to rerender, use Ref.
-  const historiesRef = useRef({}); // { [layerId]: { history: ImageData[], redo: ImageData[] } }    --- Each layer has its own history stack for undo/redo
-  const isDrawingRef = useRef(false); // whether the user is currently drawing
-  const lastPointRef = useRef(null);  // { x: number, y: number } | null   --- tracks last point for drawing continuous lines
-  const canvasContainerRef = useRef(null);  //ref to the container div for fullscreen toggling
+  const canvasRefs = useRef({});
+  const historiesRef = useRef({});
+  const isDrawingRef = useRef(false);
+  const lastPointRef = useRef(null);
+  const canvasContainerRef = useRef(null);
 
-  // --- helpers for multi-layer canvas ---
   const getCanvasAndCtx = () => {
     const canvas = canvasRefs.current[activeLayerId];
     if (!canvas) return { canvas: null, ctx: null };
@@ -65,7 +64,6 @@ export default function Work({ activeTab = "Train", onTabChange = () => {} }) {
     }
   };
 
-  // initialise each layer canvas once it's mounted
   useEffect(() => {
     layers.forEach((layer, index) => {
       const { canvas, ctx } = getCanvasAndCtxForLayer(layer.id);
@@ -86,12 +84,10 @@ export default function Work({ activeTab = "Train", onTabChange = () => {} }) {
     });
   }, [layers.length]);
 
-  // --- pointer handlers (drawing) ---
   const handlePointerDown = (e) => {
     const { canvas, ctx } = getCanvasAndCtx();
     if (!canvas || !ctx) return;
 
-    // ignore non-primary touches (palm rejection)
     if (e.pointerType === "touch" && !e.isPrimary) {
       return;
     }
@@ -186,9 +182,10 @@ export default function Work({ activeTab = "Train", onTabChange = () => {} }) {
     isDrawingRef.current = false;
     lastPointRef.current = null;
     snapshotCanvas();
+
+    // could auto-trigger analyze here if autoAnalyze === true
   };
 
-  // --- layer helpers for side rail ---
   const addLayer = () => {
     setLayers((prev) => {
       const nextIndex = prev.length + 1;
@@ -212,14 +209,85 @@ export default function Work({ activeTab = "Train", onTabChange = () => {} }) {
         setIsFullscreen(true);
       } catch (err) {
         console.error("Fullscreen error", err);
-     }
+      }
     } else {
       try {
         await document.exitFullscreen();
       } catch (err) {
-       console.error("Exit fullscreen error", err);
+        console.error("Exit fullscreen error", err);
       }
-     setIsFullscreen(false);
+      setIsFullscreen(false);
+    }
+  };
+
+  // merge visible layers into an offscreen canvas and return a PNG blob
+  const exportMergedPNGBlob = async () => {
+    const layerCanvases = layers
+      .map((layer) => ({
+        layer,
+        canvas: canvasRefs.current[layer.id],
+      }))
+      .filter((entry) => entry.canvas && entry.layer.visible);
+
+    if (layerCanvases.length === 0) return null;
+
+    const baseCanvas = layerCanvases[0].canvas;
+    const merged = document.createElement("canvas");
+    merged.width = baseCanvas.width;
+    merged.height = baseCanvas.height;
+    const mctx = merged.getContext("2d");
+
+    // white background so transparent regions don't become black
+    mctx.fillStyle = "#FFFFFF";
+    mctx.fillRect(0, 0, merged.width, merged.height);
+
+    layerCanvases.forEach(({ canvas }) => {
+      mctx.drawImage(canvas, 0, 0);
+    });
+
+    return new Promise((resolve) => {
+      merged.toBlob((blob) => resolve(blob), "image/png");
+    });
+  };
+
+  const analyzeDrawing = async () => {
+    const blob = await exportMergedPNGBlob();
+    if (!blob) {
+      console.warn("No merged image available");
+      return null;
+    }
+
+    const formData = new FormData();
+    formData.append("file", blob, "drawing.png");
+
+    try {
+      const res = await fetch("http://localhost:5000/api/analyze", {
+        method: "POST",
+        body: formData,
+      });
+
+      if (!res.ok) {
+        console.error("Backend error:", res.status);
+        return null;
+      }
+
+      const data = await res.json();
+      setSuggestionResult(data);
+      return data;
+    } catch (err) {
+      console.error("Error analyzing drawing", err);
+      return null;
+    }
+  };
+
+  const handleSuggestionClick = async () => {
+    if (!hasSuggestion) return;
+
+    if (!showSuggestion) {
+      await analyzeDrawing();
+      setShowSuggestion(true);
+    } else {
+      setShowSuggestion(false);
     }
   };
 
@@ -241,21 +309,20 @@ export default function Work({ activeTab = "Train", onTabChange = () => {} }) {
                 <span>Auto-analyze</span>
               </label>
 
-              <button //show suggestion button
+              <button
                 className="pill ghost"
                 disabled={!hasSuggestion}
-                onClick={() => hasSuggestion && setShowSuggestion((v) => !v)}
+                onClick={handleSuggestionClick}
               >
                 {showSuggestion ? "Hide suggestion" : "View suggestion"}
               </button>
-
             </div>
           </header>
 
           <div className="canvas-toolbar">
             <span className="chip">
               Brush · Size {brushSize} · {color.toUpperCase()}
-           </span>
+            </span>
 
             {/* Brush size + color controls */}
             <div className="row gap-12">
@@ -300,7 +367,7 @@ export default function Work({ activeTab = "Train", onTabChange = () => {} }) {
               {/* Color control */}
               <label className="row gap-8">
                 <span>Color</span>
-               <input
+                <input
                   type="color"
                   value={color}
                   onChange={(e) => setColor(e.target.value)}
@@ -310,10 +377,7 @@ export default function Work({ activeTab = "Train", onTabChange = () => {} }) {
           </div>
 
           {/* Main drawing surface: stacked canvases for each layer */}
-          <div
-            className="canvas-box flex-1"
-            ref={canvasContainerRef}
-          >
+          <div className="canvas-box flex-1" ref={canvasContainerRef}>
             {layers.map((layer) => (
               <canvas
                 key={layer.id}
@@ -340,7 +404,9 @@ export default function Work({ activeTab = "Train", onTabChange = () => {} }) {
             {showSuggestion && (
               <div className="canvas-suggestion-overlay">
                 <div className="canvas-suggestion-label">
-                  Preview: suggested color fix
+                  {suggestionResult?.suggested_color
+                    ? `Suggested color: ${suggestionResult.suggested_color}`
+                    : "Preview: suggested color fix"}
                 </div>
               </div>
             )}
@@ -355,7 +421,7 @@ export default function Work({ activeTab = "Train", onTabChange = () => {} }) {
           </div>
         </section>
 
-        {/* replace with icons laters */}
+        {/* replace with icons later */}
         <aside
           className="flex flex-col items-center w-16 flex-shrink-0
                      rounded-3xl bg-[var(--panel-2)]
@@ -364,14 +430,18 @@ export default function Work({ activeTab = "Train", onTabChange = () => {} }) {
           {/* tools */}
           <div className="flex flex-col gap-2 mb-3">
             <button
-              className={`tool-btn ${tool === "Brush" ? "tool-btn--active" : ""}`}
+              className={`tool-btn ${
+                tool === "Brush" ? "tool-btn--active" : ""
+              }`}
               title="Brush"
               onClick={() => setTool("Brush")}
             >
               B
             </button>
             <button
-              className={`tool-btn ${tool === "Eraser" ? "tool-btn--active" : ""}`}
+              className={`tool-btn ${
+                tool === "Eraser" ? "tool-btn--active" : ""
+              }`}
               title="Eraser"
               onClick={() => setTool("Eraser")}
             >
