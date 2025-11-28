@@ -6,7 +6,7 @@ export default function Work({ activeTab = "Train", onTabChange = () => {} }) {
 
   const [hasSuggestion] = useState(true);
   const [showSuggestion, setShowSuggestion] = useState(false);
-  const [suggestionResult, setSuggestionResult] = useState(null);
+  const [suggestionResult, setSuggestionResult] = useState(null);  //store the most recent suggestion result  
 
   const [layers, setLayers] = useState([
     { id: "layer-1", name: "Layer 1", visible: true },
@@ -227,24 +227,27 @@ export default function Work({ activeTab = "Train", onTabChange = () => {} }) {
         layer,
         canvas: canvasRefs.current[layer.id],
       }))
-      .filter((entry) => entry.canvas && entry.layer.visible);
+      .filter((entry) => entry.canvas && entry.layer.visible);    //check if the layer is visible 
 
     if (layerCanvases.length === 0) return null;
 
+      //create blank canvas which is hidden 
     const baseCanvas = layerCanvases[0].canvas;
     const merged = document.createElement("canvas");
-    merged.width = baseCanvas.width;
+    merged.width = baseCanvas.width;  // use same dimensions as a normal canvas 
     merged.height = baseCanvas.height;
-    const mctx = merged.getContext("2d");
+    const mctx = merged.getContext("2d");   //get context for whats on it 
 
     // white background so transparent regions don't become black
     mctx.fillStyle = "#FFFFFF";
-    mctx.fillRect(0, 0, merged.width, merged.height);
+    mctx.fillRect(0, 0, merged.width, merged.height);   //without this , the image result was black (tho it could just need tweaking)
 
+    //copy each layer onto the hidden canvas and make a merged canvas
     layerCanvases.forEach(({ canvas }) => {
       mctx.drawImage(canvas, 0, 0);
     });
 
+    // return png 
     return new Promise((resolve) => {
       merged.toBlob((blob) => resolve(blob), "image/png");
     });
@@ -257,8 +260,11 @@ export default function Work({ activeTab = "Train", onTabChange = () => {} }) {
       return null;
     }
 
+    // build   form data
     const formData = new FormData();
     formData.append("file", blob, "drawing.png");
+
+    // send to backend. Right now it's just a local link 
 
     try {
       const res = await fetch("http://localhost:5000/api/analyze", {
@@ -280,6 +286,7 @@ export default function Work({ activeTab = "Train", onTabChange = () => {} }) {
     }
   };
 
+    // new behaviour for the suggestion button  (though it isnt fully implemented , the idea is for it to overlay the suggestions )
   const handleSuggestionClick = async () => {
     if (!hasSuggestion) return;
 
@@ -401,11 +408,11 @@ export default function Work({ activeTab = "Train", onTabChange = () => {} }) {
               />
             ))}
 
-            {showSuggestion && (
+            {showSuggestion && (                                
               <div className="canvas-suggestion-overlay">
                 <div className="canvas-suggestion-label">
                   {suggestionResult?.suggested_color
-                    ? `Suggested color: ${suggestionResult.suggested_color}`
+                    ? `Suggested color: ${suggestionResult.suggested_color}`        // now use backend results 
                     : "Preview: suggested color fix"}
                 </div>
               </div>
