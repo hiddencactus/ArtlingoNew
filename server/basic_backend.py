@@ -1,156 +1,179 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-from PIL import Image
-import io
-import os
 import cv2
 import numpy as np
+import math
 
 app = Flask(__name__)
 CORS(app)
 
 class HarmonyAnalyzer:
     def __init__(self, image_bytes):
+        # Decode image
         nparr = np.frombuffer(image_bytes, np.uint8)
         self.image_bgr = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
         
         if self.image_bgr is not None:
-            self.image_lab = cv2.cvtColor(self.image_bgr, cv2.COLOR_BGR2LAB)
+            # Convert to HSV (Hue is what matters for the Color Wheel)
+            self.image_hsv = cv2.cvtColor(self.image_bgr, cv2.COLOR_BGR2HSV)
             self.image_gray = cv2.cvtColor(self.image_bgr, cv2.COLOR_BGR2GRAY)
             self.height, self.width, _ = self.image_bgr.shape
 
-    def analyze_values(self):
-        """Analyze Light/Dark usage (Smart Contrast)"""
-        if self.image_bgr is None: return 0, "Error"
+    def get_dominant_hues(self, k=4):
+        """
+        Extracts the main colors (Hues) using K-Means Clustering.
+        Ignores white background and black lines.
+        """
+        if self.image_hsv is None: return []
+
+        # 1. Flatten the image to a list of pixels
+        pixels = self.image_hsv.reshape(-1, 3)
         
-        # 1. Mask out white background
+        # 2. Filter out White/Gray/Black
+        # Saturation > 20 (Not white/gray)
+        # Value > 20 and < 250 (Not black, Not pure bright white paper)
+        valid_pixels = pixels[
+            (pixels[:, 1] > 20) & 
+            (pixels[:, 2] > 20) & 
+            (pixels[:, 2] < 250)
+        ]
+
+        if len(valid_pixels) < 100:
+            return [] # Not enough color to analyze
+
+        # 3. K-Means Clustering to find K dominant colors
+        valid_pixels = np.float32(valid_pixels)
+        criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 10, 1.0)
+        _, labels, centers = cv2.kmeans(valid_pixels, k, None, criteria, 10, cv2.KMEANS_RANDOM_CENTERS)
+        
+        # 4. Extract just the Hues (Channel 0)
+        # OpenCV Hue is 0-179. We multiply by 2 to get standard 0-360 Color Wheel degrees.
+        dominant_hues = [c[0] * 2 for c in centers]
+        return sorted(dominant_hues)
+
+    def analyze_color_harmony(self):
+        """
+        Determines which Harmony Template the palette fits best.
+        """
+        hues = self.get_dominant_hues()
+        
+        if not hues:
+            return 0, "No distinct colors found (Grayscale/Blank).", "None"
+
+        # Templates defined by ideal gaps between colors
+        templates = {
+            "Analogous": [0, 30],         # Colors close together
+            "Complementary": [0, 180],    # Opposite sides
+            "Triadic": [0, 120, 240],     # Triangle
+            "Split-Complementary": [0, 150, 210], # Y-Shape
+            "Tetradic": [0, 90, 180, 270] # Rectangle
+        }
+
+        best_fit_name = "None"
+        best_fit_score = 0
+        min_error = float('inf')
+
+        # Test the palette against every template
+        for name, angles in templates.items():
+            current_template_error = float('inf')
+            
+            for base_hue in hues:
+                ideal_angles = [(base_hue + a) % 360 for a in angles]
+                total_dist = 0
+                for h in hues:
+                    distances = [min(abs(h - i), 360 - abs(h - i)) for i in ideal_angles]
+                    total_dist += min(distances) 
+                
+                current_template_error = min(current_template_error, total_dist)
+
+            if current_template_error < min_error:
+                min_error = current_template_error
+                best_fit_name = name
+
+        # Score calculation
+        best_fit_score = max(0, int(100 - (min_error * 1.5)))
+
+        # Feedback Generation (Removed the ** asterisks)
+        feedback = f"Your palette is closest to {best_fit_name}."
+        if best_fit_score > 85:
+            feedback += " It is a very strong match!"
+        elif best_fit_score > 60:
+            feedback += " It's recognizable, but some colors are drifting."
+        else:
+            feedback += " However, the colors are quite scattered."
+
+        return best_fit_score, feedback, best_fit_name
+
+    def analyze_values(self):
+        """Analyze Light/Dark usage (Percentile based)"""
+        if self.image_bgr is None: return 0, "Error"
         ink_mask = self.image_gray < 250
         if np.sum(ink_mask) == 0: return 0, "Canvas appears blank."
-
-        # 2. Analyze the ink
+        
         ink_values = self.image_gray[ink_mask]
-        darkest_val = np.min(ink_values)
-        lightest_ink = np.max(ink_values)
+        dark_p = np.percentile(ink_values, 10)
+        light_p = np.percentile(ink_values, 90)
+        dynamic_range = light_p - dark_p
         
-        dynamic_range = lightest_ink - darkest_val
-        score = min(100, int((dynamic_range / 255) * 100))
+        score = 0
+        if dynamic_range > 30:
+            score = min(100, int((dynamic_range / 200) * 100))
         
-        # --- TEACHER LOGIC ---
-        feedback = []
-        if score < 40:
-            feedback.append("Your drawing is very faint.")
-            feedback.append("Try pressing harder or using a darker brush for shadows.")
-        elif score < 70:
-            feedback.append("Good start on contrast.")
-            feedback.append("To make it pop, add some pure black to the deepest shadows.")
-        else:
-            feedback.append("Excellent use of value range!")
-            
-        return score, " ".join(feedback)
-
-    def analyze_temperature(self):
-        """Analyze Warm/Cool Balance"""
-        if self.image_bgr is None: return 0, "Error"
-        
-        l, a, b = cv2.split(self.image_lab)
-        neutral_min, neutral_max = 123, 133
-
-        warm_mask = (a > neutral_max) | (b > neutral_max)
-        cool_mask = (a < neutral_min) | (b < neutral_min)
-        
-        warm_count = np.count_nonzero(warm_mask)
-        cool_count = np.count_nonzero(cool_mask)
-        total = warm_count + cool_count
-        
-        if total == 0: return 0, "No color detected.", "#FFFFFF"
-
-        warm_ratio = warm_count / total
-        
-        # --- TEACHER LOGIC ---
-        feedback = []
-        suggestion_col = "#FFFFFF"
-        
-        if warm_ratio > 0.8:
-            feedback.append("This is a very warm, energetic image.")
-            feedback.append("Try adding a cool blue background or green accents to balance the heat.")
-            suggestion_col = "#0000FF" # Blue
-        elif warm_ratio < 0.2:
-            feedback.append("This is a very cool, calm image.")
-            feedback.append("A splash of orange or red would create a striking focal point.")
-            suggestion_col = "#FF4500" # Orange
-        elif 0.4 <= warm_ratio <= 0.6:
-            feedback.append("Perfectly balanced temperatures!")
-            feedback.append("The interaction between warm and cool areas is working well.")
-        else:
-            dominant = "Warm" if warm_ratio > 0.5 else "Cool"
-            feedback.append(f"The image leans {dominant}.")
-            feedback.append("Consider pushing the contrast between the two temperatures further.")
-            suggestion_col = "#00FF00" if dominant == "Warm" else "#FF0000"
-
-        # Score based on intentionality
-        dist_from_balance = abs(warm_ratio - 0.5)
-        score = int(100 - (abs(dist_from_balance - 0.4) * 200))
-        score = max(0, min(100, score))
-
-        return score, " ".join(feedback), suggestion_col
+        feedback = "Good contrast." if score > 70 else "Increase contrast."
+        return score, feedback
 
     def analyze_lines(self):
-        """Analyze Edge/Line Quality (MISSING FUNCTION ADDED BACK)"""
+        """Analyze Line Quality (Ratio based)"""
         if self.image_bgr is None: return 0
-        
-        # Detect edges
         edges = cv2.Canny(self.image_gray, 50, 150)
         edge_pixel_count = np.count_nonzero(edges)
+        ink_mask = self.image_gray < 250
+        ink_pixel_count = np.count_nonzero(ink_mask)
+        if ink_pixel_count == 0: return 0
         
-        # Calculate density (lines per area)
-        density = edge_pixel_count / (self.width * self.height)
-        
-        # Heuristic: Lower density usually means cleaner, more confident lines
-        score = max(0, 100 - int(density * 1000)) 
-        return score
+        ratio = edge_pixel_count / ink_pixel_count
+        score = 100 - int((ratio - 0.15) * 300)
+        return max(0, min(100, score))
 
     def get_full_report(self):
         if self.image_bgr is None: return {"error": "Could not process image"}
         
-        val_score, val_msg = self.analyze_values()
-        temp_score, temp_msg, suggest_col = self.analyze_temperature()
-        line_score = self.analyze_lines()
-        
-        full_feedback = f"{val_msg} {temp_msg}"
+        val_s, val_m = self.analyze_values()
+        line_s = self.analyze_lines()
+        harm_s, harm_m, harm_type = self.analyze_color_harmony()
         
         return {
             "metrics": {
-                "straightness": line_score,
-                "value_grouping": val_score,
-                "harmony": temp_score
+                "straightness": line_s,
+                "value_grouping": val_s,
+                "harmony": harm_s
             },
             "feedback": {
-                "general": full_feedback,
-                "suggestion_color": suggest_col
+                "general": f"{harm_m} {val_m}",
+                "harmony_type": harm_type,
             }
         }
 
 @app.route("/", methods=["GET"])
-def root():
-    return jsonify({"status": "ArtLingo AI Backend Running"})
+def root(): return jsonify({"status": "ArtLingo AI Backend Running"})
 
 @app.route("/api/analyze", methods=["POST"])
 def analyze():
-    if "file" not in request.files:
-        return jsonify({"error": "No file provided"}), 400
-
+    if "file" not in request.files: return jsonify({"error": "No file"}), 400
     file = request.files["file"]
-
-    try:
-        img_bytes = file.read()
-        analyzer = HarmonyAnalyzer(img_bytes)
-        results = analyzer.get_full_report()
-        print("Analysis Results:", results)
-        return jsonify(results)
-
-    except Exception as e:
-        print("Analysis error:", e)
-        return jsonify({"error": str(e)}), 500
+    
+    # Run Analysis
+    analyzer = HarmonyAnalyzer(file.read())
+    report = analyzer.get_full_report()
+    
+    # DEBUG PRINT: This will show up in your VS Code / Terminal
+    print("\n--- NEW ANALYSIS ---")
+    print(f"Harmony Type: {report.get('feedback', {}).get('harmony_type')}")
+    print(f"Scores: {report.get('metrics')}")
+    print(f"Feedback: {report.get('feedback', {}).get('general')}")
+    print("--------------------\n")
+    
+    return jsonify(report)
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000, debug=True)
