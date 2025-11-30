@@ -118,9 +118,16 @@ export default function Work({ activeTab = "Train", onTabChange = () => {} }) {
     const last = lastPointRef.current; if (!point || !last) return;
     const now = performance.now();
     const dt = now - last.time || 1;
-    const dx = point.x - last.x; const dy = point.y - last.y;
+
+    const alpha = 0.6; // higher = smoother but laggier
+    const smoothedX = alpha * last.x + (1 - alpha) * point.x;
+    const smoothedY = alpha * last.y + (1 - alpha) * point.y;
+
+    const dx = smoothedX - last.x; 
+    const dy = smoothedY - last.y;
     const dist = Math.sqrt(dx * dx + dy * dy);
     const speed = dist / dt; 
+
     const rawPressure = typeof e.pressure === "number" ? e.pressure : 0;
     const pressure = rawPressure > 0 ? rawPressure : 1;
     const tiltX = typeof e.tiltX === "number" ? e.tiltX : 0;
@@ -129,11 +136,20 @@ export default function Work({ activeTab = "Train", onTabChange = () => {} }) {
     const speedNorm = Math.min(speed / maxSpeed, 1);
     const minFactor = 0.3; const maxFactor = 1.2;
     const inv = 1 - speedNorm;
+
     const targetWidth = brushSize * pressure * tiltFactor * (minFactor + inv * (maxFactor - minFactor));
     const smoothedWidth = last.width * 0.7 + targetWidth * 0.3;
     ctx.lineWidth = smoothedWidth;
-    ctx.lineTo(point.x, point.y); ctx.stroke();
-    lastPointRef.current = { x: point.x, y: point.y, time: now, width: smoothedWidth };
+  
+    ctx.lineTo(smoothedX, smoothedY);
+    ctx.stroke();
+
+    lastPointRef.current = {
+      x: smoothedX,
+      y: smoothedY,
+      time: now,
+      width: smoothedWidth,
+    };
   };
 
   const handlePointerUp = () => {
