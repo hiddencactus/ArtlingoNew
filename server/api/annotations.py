@@ -11,7 +11,7 @@ from flask import request, jsonify
 from scipy.ndimage import gaussian_filter
 from datetime import datetime
 
-from db.storage import load_annotations, save_annotation, get_annotations_file
+from db.storage import delete_annotation, load_annotations, save_annotation, get_annotations_file
 from api.images import image_exists, get_image_path
 from ml.analyzer import HarmonyAnalyzer
 
@@ -51,10 +51,20 @@ def init_routes(app):
             "patches": [{metrics}, ...]
           }
         """
-        data = request.json
+        data = request.get_json(silent=True) or {}
         image_name = data.get("image_id")
         artist_id = data.get("artist_id", "anonymous")
         clicks = data.get("clicks", [])
+        no_issues = bool(data.get("no_issues", False))
+        issue_scope = data.get("issue_scope") or []
+
+        if not isinstance(issue_scope, list):
+            issue_scope = []
+
+        if no_issues:
+            clicks = []
+        elif len(clicks) != 3:
+            return jsonify({"error": "Exactly 3 clicks required unless no_issues is true"}), 400
         
         # Validate image exists
         if not image_exists(image_name):
@@ -101,19 +111,24 @@ def init_routes(app):
             "timestamp": datetime.now().isoformat(),
             "clicks": clicks,
             "blurred_grid": blurred.tolist(),
-            "patches": patches
+            "patches": patches,
+            "no_issues": no_issues,
+            "issue_scope": issue_scope
         }
         
-        # === SAVE TO JSON ===
-        total_annotations = save_annotation(image_name, annotation_doc)
-        
         # Check if this artist already labeled this image (for info message only)
-        all_annotations = load_annotations(image_name)
-        existing_artist_ids = [a.get("artist_id") for a in all_annotations[:-1]]
+        existing_annotations = load_annotations(image_name)
+        existing_artist_ids = {a.get("artist_id") for a in existing_annotations}
         is_resubmission = artist_id in existing_artist_ids
+
+        # === SAVE TO STORAGE ===
+        try:
+            total_annotations = save_annotation(image_name, annotation_doc)
+        except Exception as exc:
+            return jsonify({"error": "Failed to save annotation", "details": str(exc)}), 500
         
         # === RETURN RESPONSE ===
-        remaining = 4 - total_annotations
+        remaining = max(0, 4 - total_annotations)
         consensus_ready = "✅" if remaining == 0 else "⏳"
         
         response_msg = f"{consensus_ready} Annotation saved. {remaining} more artist(s) needed for consensus."
@@ -130,7 +145,9 @@ def init_routes(app):
             "progress": f"{total_annotations} of 4 artists have labeled this image",
             "message": response_msg,
             "blurred_grid": blurred.tolist(),
-            "patches": patches
+            "patches": patches,
+            "no_issues": no_issues,
+            "issue_scope": issue_scope
         })
 
     @app.route("/api/labels/<image_id>", methods=["GET"])
@@ -152,4 +169,45 @@ def init_routes(app):
             "annotation_count": len(annotations),
             "artists": [a["artist_id"] for a in annotations],
             "annotations": annotations
+        })
+
+    @app.route("/api/label", methods=["DELETE"])
+    def delete_annotation_endpoint():
+        """
+        Delete one artist's annotation for an image.
+
+        Request:
+          {
+            "image_id": "1.jpeg",
+            "artist_id": "stephen"
+          }
+        """
+        data = request.get_json(silent=True) or {}
+        image_name = data.get("image_id")
+        artist_id = data.get("artist_id")
+
+        if not image_name or not artist_id:
+            return jsonify({"error": "image_id and artist_id are required"}), 400
+
+        try:
+            deleted = delete_annotation(image_name, artist_id)
+        except Exception as exc:
+            return jsonify({"error": "Failed to delete annotation", "details": str(exc)}), 500
+
+        if deleted == 0:
+            return jsonify({
+                "status": "not_found",
+                "image_id": image_name,
+                "artist_id": artist_id,
+                "deleted": 0,
+                "annotations_count": len(load_annotations(image_name)),
+            })
+
+        remaining_annotations = load_annotations(image_name)
+        return jsonify({
+            "status": "deleted",
+            "image_id": image_name,
+            "artist_id": artist_id,
+            "deleted": deleted,
+            "annotations_count": len(remaining_annotations),
         })

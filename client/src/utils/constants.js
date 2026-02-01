@@ -14,6 +14,7 @@ export const API_ENDPOINTS = {
   
   // Annotations (Phase 1)
   SAVE_ANNOTATION: `${API_BASE}/api/label`,
+  DELETE_ANNOTATION: `${API_BASE}/api/label`,
   GET_ANNOTATIONS: (imageId) => `${API_BASE}/api/labels/${imageId}`,
   
   // Training data & progress (Phase 2)
@@ -29,6 +30,8 @@ export const GRID_CONFIG = {
   IMAGE_SIZE: 512,       // 512x512 image
   MAX_CLICKS: 3,         // Max 3 selections per image
 };
+
+export const ISSUE_SCOPES = ["line", "value", "color"];
 
 export const ARTISTS = ["Stephen", "Yash", "Artist 3", "Artist 4"];
 

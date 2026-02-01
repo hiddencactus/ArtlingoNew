@@ -1,4 +1,4 @@
-/**
+﻿/**
  * CUSTOM HOOK: useAnnotation
  * 
  * Submits annotation to backend.
@@ -13,20 +13,24 @@ export function useAnnotation() {
   const [result, setResult] = useState(null);
   const [error, setError] = useState(null);
 
-  const submitAnnotation = async (imageId, artistId, selectedCells) => {
+  const submitAnnotation = async (imageId, artistId, selectedCells, options = {}) => {
     setLoading(true);
     setError(null);
 
     try {
+      const { noIssues = false, issueScope = [] } = options;
+
       // Convert grid cells to pixel coordinates
-      const clicks = Array.from(selectedCells).map((cellKey) => {
-        const [row, col] = cellKey.split(",").map(Number);
-        const { CELL_SIZE } = GRID_CONFIG;
-        return [
-          col * CELL_SIZE + CELL_SIZE / 2,
-          row * CELL_SIZE + CELL_SIZE / 2,
-        ];
-      });
+      const clicks = noIssues
+        ? []
+        : Array.from(selectedCells).map((cellKey) => {
+            const [row, col] = cellKey.split(",").map(Number);
+            const { CELL_SIZE } = GRID_CONFIG;
+            return [
+              col * CELL_SIZE + CELL_SIZE / 2,
+              row * CELL_SIZE + CELL_SIZE / 2,
+            ];
+          });
 
       console.log(`📤 Submitting annotation:`, {
         image: imageId,
@@ -39,6 +43,8 @@ export function useAnnotation() {
         image_id: imageId,
         artist_id: artistId,
         clicks,
+        no_issues: noIssues,
+        issue_scope: issueScope,
       });
 
       const res = await fetch(API_ENDPOINTS.SAVE_ANNOTATION, {
@@ -48,6 +54,8 @@ export function useAnnotation() {
           image_id: imageId,
           artist_id: artistId,
           clicks,
+          no_issues: noIssues,
+          issue_scope: issueScope,
         }),
       });
 
@@ -74,5 +82,37 @@ export function useAnnotation() {
     }
   };
 
-  return { loading, result, error, submitAnnotation };
+  const deleteAnnotation = async (imageId, artistId) => {
+    setLoading(true);
+    setError(null);
+
+    try {
+      const res = await fetch(API_ENDPOINTS.DELETE_ANNOTATION, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          image_id: imageId,
+          artist_id: artistId,
+        }),
+      });
+
+      if (!res.ok) {
+        throw new Error(`Backend error: ${res.status} ${res.statusText}`);
+      }
+
+      return await res.json();
+    } catch (err) {
+      console.error("❌ Error deleting annotation:", err);
+      setError(err.message);
+      setResult({
+        error: true,
+        message: `Failed to delete annotation: ${err.message}`,
+      });
+      throw err;
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return { loading, result, error, submitAnnotation, deleteAnnotation };
 }

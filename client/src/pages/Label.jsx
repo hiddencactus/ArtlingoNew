@@ -1,4 +1,4 @@
-/**
+﻿/**
  * ==============================================================================
  * LABEL PAGE - MAIN ANNOTATION INTERFACE
  * ==============================================================================
@@ -21,7 +21,7 @@
  */
 
 import { useState, useEffect } from "react";
-import { STORAGE_KEYS, API_ENDPOINTS, GRID_CONFIG } from "../utils/constants";
+import { STORAGE_KEYS, API_ENDPOINTS, GRID_CONFIG, ISSUE_SCOPES } from "../utils/constants";
 import ArtistModal from "../components/ArtistModal";
 import ImageCanvas from "../components/ImageCanvas";
 import ControlPanel from "../components/ControlPanel";
@@ -39,10 +39,12 @@ export default function LabelPage() {
   const [resultJson, setResultJson] = useState(null);
   const [isAlreadyAnnotated, setIsAlreadyAnnotated] = useState(false);
   const [annotationsByArtist, setAnnotationsByArtist] = useState([]);
+  const [noIssues, setNoIssues] = useState(false);
+  const [issueScope, setIssueScope] = useState(ISSUE_SCOPES);
 
   // ===== CUSTOM HOOKS =====
   const { imageList, loading } = useImageLoader();
-  const { submitAnnotation } = useAnnotation();
+  const { submitAnnotation, deleteAnnotation } = useAnnotation();
 
   // ===== EFFECT: Check if current image already annotated =====
   useEffect(() => {
@@ -72,7 +74,15 @@ export default function LabelPage() {
               (ann) => ann.artist_id.toLowerCase() === artistId.toLowerCase()
             );
             
-            if (userAnnotation && userAnnotation.clicks) {
+            const storedNoIssues = Boolean(userAnnotation?.no_issues);
+            const storedScope = Array.isArray(userAnnotation?.issue_scope) && userAnnotation.issue_scope.length > 0
+              ? userAnnotation.issue_scope
+              : ISSUE_SCOPES;
+
+            setNoIssues(storedNoIssues);
+            setIssueScope(storedScope);
+
+            if (!storedNoIssues && userAnnotation && userAnnotation.clicks) {
               // Convert pixel coordinates back to grid cells
               const cellKeys = userAnnotation.clicks.map((click) => {
                 const [x, y] = click;
@@ -83,12 +93,17 @@ export default function LabelPage() {
               
               setSelectedCells(new Set(cellKeys));
               console.log(`📍 Loaded ${cellKeys.length} previously selected cells`);
+            } else {
+              setSelectedCells(new Set());
             }
+
             setResultJson(userAnnotation);
           } else {
             // Other artists have annotated, but NOT this artist
             console.log(`⭕ This artist hasn't annotated this image yet`);
             setSelectedCells(new Set()); // CLEAR cells
+            setNoIssues(false);
+            setIssueScope(ISSUE_SCOPES);
           }
         } else if (response.status === 404) {
           // Image has NO annotations yet
@@ -96,6 +111,8 @@ export default function LabelPage() {
           setAnnotationsByArtist([]);
           setIsAlreadyAnnotated(false);
           setSelectedCells(new Set()); // Clear selected cells
+          setNoIssues(false);
+          setIssueScope(ISSUE_SCOPES);
         }
       } catch (error) {
         console.error("Error checking annotation status:", error);
@@ -113,8 +130,28 @@ export default function LabelPage() {
     console.log(`✅ Artist selected: ${name}`);
   };
 
+  const handleToggleNoIssues = () => {
+    setNoIssues((prev) => {
+      const next = !prev;
+      if (next) {
+        setSelectedCells(new Set());
+      }
+      return next;
+    });
+  };
+
+  const handleToggleScope = (scope) => {
+    setIssueScope((prev) => (
+      prev.includes(scope)
+        ? prev.filter((item) => item !== scope)
+        : [...prev, scope]
+    ));
+  };
+
   // ===== HANDLER: Toggle cell selection =====
   const handleCellClick = (row, col) => {
+    if (noIssues) return;
+
     const cellKey = `${row},${col}`;
     const newSelected = new Set(selectedCells);
 
@@ -133,10 +170,12 @@ export default function LabelPage() {
 
     console.log("🚀 Starting submission...");
     try {
+      const scope = issueScope.length > 0 ? issueScope : ISSUE_SCOPES;
       const data = await submitAnnotation(
         imageList[currentIndex],
         artistId,
-        selectedCells
+        selectedCells,
+        { noIssues, issueScope: scope }
       );
       console.log("📥 Received response:", data);
       setResultJson(data);
@@ -154,10 +193,35 @@ export default function LabelPage() {
     }
   };
 
+  // ===== HANDLER: Delete current artist annotation =====
+  const handleDelete = async () => {
+    if (!imageList || imageList.length === 0 || !artistId) return;
+
+    try {
+      await deleteAnnotation(imageList[currentIndex], artistId);
+      setIsAlreadyAnnotated(false);
+      setSelectedCells(new Set());
+      setResultJson(null);
+      setNoIssues(false);
+      setIssueScope(ISSUE_SCOPES);
+      setAnnotationsByArtist((prev) =>
+        prev.filter((artist) => artist.toLowerCase() !== artistId.toLowerCase())
+      );
+    } catch (error) {
+      console.error("❌ Delete failed:", error);
+      setResultJson({
+        error: true,
+        message: `Delete failed: ${error.message}`,
+      });
+    }
+  };
+
   // ===== HANDLER: Reset current image =====
   const handleReset = () => {
     setSelectedCells(new Set());
     setResultJson(null);
+    setNoIssues(false);
+    setIssueScope(ISSUE_SCOPES);
   };
 
   // ===== HANDLER: Navigation =====
@@ -169,6 +233,42 @@ export default function LabelPage() {
   const handleNext = () => {
     handleReset();
     setCurrentIndex((c) => Math.min(imageList.length - 1, c + 1));
+  };
+
+  const handleSkipUnlabeled = async () => {
+    if (!imageList || imageList.length === 0 || !artistId) return;
+
+    for (let i = currentIndex + 1; i < imageList.length; i += 1) {
+      const imageId = imageList[i];
+      try {
+        const response = await fetch(API_ENDPOINTS.GET_ANNOTATIONS(imageId));
+
+        if (response.status === 404) {
+          handleReset();
+          setCurrentIndex(i);
+          return;
+        }
+
+        if (!response.ok) {
+          continue;
+        }
+
+        const data = await response.json();
+        const alreadyAnnotated = (data.artists || []).some(
+          (artist) => artist.toLowerCase() === artistId.toLowerCase()
+        );
+
+        if (!alreadyAnnotated) {
+          handleReset();
+          setCurrentIndex(i);
+          return;
+        }
+      } catch (error) {
+        console.error("Error skipping to unlabeled image:", error);
+      }
+    }
+
+    console.log("No unlabeled images found after current image.");
   };
 
   // ===== RENDER: Loading =====
@@ -248,11 +348,19 @@ export default function LabelPage() {
           currentIndex={currentIndex}
           totalImages={imageList.length}
           selectedCount={selectedCells.size}
+          noIssues={noIssues}
+          issueScopes={ISSUE_SCOPES}
+          selectedScopes={issueScope}
           onPrev={handlePrev}
           onNext={handleNext}
           onClear={handleReset}
           onSubmit={handleSubmit}
+          onDelete={handleDelete}
+          onSkipUnlabeled={handleSkipUnlabeled}
+          onToggleNoIssues={handleToggleNoIssues}
+          onToggleScope={handleToggleScope}
           isDisabled={isAlreadyAnnotated}
+          showDelete={isAlreadyAnnotated}
         />
       </div>
 

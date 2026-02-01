@@ -1,0 +1,6 @@
+/.venv/
+/static/processed_images/
+/static/training_images/*.jpg
+/static/training_images/*.jpeg
+/static/training_images/*.png
+/static/training_images/*.webp

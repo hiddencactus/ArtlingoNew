@@ -9,7 +9,7 @@ Handles listing images and reading image files.
 import os
 from flask import send_from_directory, jsonify
 
-IMAGE_DIR = 'static/training_images'
+IMAGE_DIR = 'static/processed_images'
 
 
 def init_routes(app):

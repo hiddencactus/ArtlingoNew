@@ -10,7 +10,13 @@ import numpy as np
 import os
 from flask import request, jsonify
 
-from db.storage import load_annotations, save_training_data, has_training_data
+from db.storage import (
+    get_annotations_file,
+    has_training_data,
+    load_all_annotations,
+    load_annotations,
+    save_training_data,
+)
 from api.images import IMAGE_DIR
 
 
@@ -108,8 +114,6 @@ def init_routes(app):
             "images": {...}
           }
         """
-        annotations_dir = 'data/annotations'
-        
         summary = {
             "total_images": len([f for f in os.listdir(IMAGE_DIR) 
                                 if f.lower().endswith(('.png', '.jpg', '.jpeg', '.webp'))]),
@@ -117,37 +121,38 @@ def init_routes(app):
             "images": {},
             "per_artist": {}
         }
-        
-        if not os.path.exists(annotations_dir):
-            return jsonify(summary)
-        
-        # Scan all annotation files
-        for filename in os.listdir(annotations_dir):
-            if filename.startswith("annotations_") and filename.endswith(".json"):
-                try:
-                    annotations = load_annotations(filename.replace('annotations_', '').replace('.json', '').replace('_', '.'))
-                    if not annotations:
-                        continue
-                    
-                    image_id = annotations[0]["image_id"]
-                    
-                    # Count per artist
-                    for a in annotations:
-                        artist = a["artist_id"]
-                        summary["per_artist"][artist] = summary["per_artist"].get(artist, 0) + 1
-                    
-                    # Mark as complete if 4 artists
-                    is_complete = len(annotations) >= 4
-                    if is_complete:
-                        summary["complete_images"] += 1
-                    
-                    summary["images"][image_id] = {
-                        "annotation_count": len(annotations),
-                        "artists": [a["artist_id"] for a in annotations],
-                        "is_complete": is_complete
-                    }
-                except Exception as e:
-                    print(f"Error processing {filename}: {e}")
+
+        all_annotations = load_all_annotations()
+        image_index = {}
+        for annotation in all_annotations:
+            image_id = annotation.get("image_id")
+            if not image_id:
+                continue
+            entry = image_index.setdefault(image_id, {"artists": set(), "annotations": []})
+            entry["annotations"].append(annotation)
+
+            artist = annotation.get("artist_id")
+            if artist:
+                entry["artists"].add(artist)
+                summary["per_artist"][artist] = summary["per_artist"].get(artist, 0) + 1
+
+        for image_id, entry in image_index.items():
+            if entry["artists"]:
+                artists_list = sorted(entry["artists"])
+                annotation_count = len(entry["artists"])
+            else:
+                artists_list = []
+                annotation_count = len(entry["annotations"])
+
+            is_complete = annotation_count >= 4
+            if is_complete:
+                summary["complete_images"] += 1
+
+            summary["images"][image_id] = {
+                "annotation_count": annotation_count,
+                "artists": artists_list,
+                "is_complete": is_complete
+            }
         
         summary["pending_images"] = summary["total_images"] - summary["complete_images"]
         return jsonify(summary)
@@ -166,22 +171,10 @@ def init_routes(app):
             "annotations": [...]
           }
         """
-        annotations_dir = 'data/annotations'
-        artist_annotations = []
-        
-        if not os.path.exists(annotations_dir):
-            return jsonify({"artist_id": artist_id, "annotations": []})
-        
-        for filename in os.listdir(annotations_dir):
-            if filename.startswith("annotations_") and filename.endswith(".json"):
-                try:
-                    annotations = load_annotations(filename.replace('annotations_', '').replace('.json', '').replace('_', '.'))
-                    
-                    # Find annotations by this artist
-                    artist_annots = [a for a in annotations if a["artist_id"] == artist_id]
-                    artist_annotations.extend(artist_annots)
-                except Exception as e:
-                    print(f"Error processing {filename}: {e}")
+        all_annotations = load_all_annotations()
+        artist_annotations = [
+            a for a in all_annotations if a.get("artist_id") == artist_id
+        ]
         
         return jsonify({
             "artist_id": artist_id,
@@ -196,33 +189,37 @@ def init_routes(app):
         
         GET /api/data-summary
         """
-        annotations_dir = 'data/annotations'
         summary = {
-            "annotations_dir": annotations_dir,
+            "annotations_dir": 'data/annotations',
             "images": {}
         }
-        
-        if not os.path.exists(annotations_dir):
-            return jsonify(summary)
-        
-        # Scan annotation files
-        for filename in os.listdir(annotations_dir):
-            if filename.startswith("annotations_") and filename.endswith(".json"):
-                try:
-                    annotations = load_annotations(filename.replace('annotations_', '').replace('.json', '').replace('_', '.'))
-                    
-                    if not annotations:
-                        continue
-                    
-                    image_id = annotations[0]["image_id"]
-                    
-                    summary["images"][image_id] = {
-                        "annotation_count": len(annotations),
-                        "artists": [a["artist_id"] for a in annotations],
-                        "file": filename,
-                        "has_training_data": has_training_data(image_id)
-                    }
-                except Exception as e:
-                    print(f"Error processing {filename}: {e}")
+
+        all_annotations = load_all_annotations()
+        image_index = {}
+        for annotation in all_annotations:
+            image_id = annotation.get("image_id")
+            if not image_id:
+                continue
+            entry = image_index.setdefault(image_id, {"artists": set(), "count": 0})
+            entry["count"] += 1
+
+            artist = annotation.get("artist_id")
+            if artist:
+                entry["artists"].add(artist)
+
+        for image_id, entry in image_index.items():
+            if entry["artists"]:
+                artists_list = sorted(entry["artists"])
+                annotation_count = len(entry["artists"])
+            else:
+                artists_list = []
+                annotation_count = entry["count"]
+
+            summary["images"][image_id] = {
+                "annotation_count": annotation_count,
+                "artists": artists_list,
+                "file": get_annotations_file(image_id),
+                "has_training_data": has_training_data(image_id)
+            }
         
         return jsonify(summary)
