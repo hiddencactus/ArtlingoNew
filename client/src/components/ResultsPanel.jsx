@@ -8,9 +8,61 @@
  */
 
 import React from "react";
+import { GRID_CONFIG } from "../utils/constants";
+
+const formatMetric = (value) => (
+  Number.isFinite(value) ? `${Math.round(value)}%` : "N/A"
+);
+
+const getLabeledTiles = (resultJson) => {
+  const patches = Array.isArray(resultJson?.patches) ? resultJson.patches : [];
+  const clicks = Array.isArray(resultJson?.clicks) ? resultJson.clicks : [];
+
+  if (patches.length === 0 || clicks.length === 0) {
+    return [];
+  }
+
+  const patchById = new Map();
+  for (const patch of patches) {
+    if (patch && typeof patch.patch_id === "number") {
+      patchById.set(patch.patch_id, patch);
+    }
+  }
+
+  const tiles = [];
+  const selectedIds = new Set();
+  for (const click of clicks) {
+    if (!Array.isArray(click) || click.length < 2) continue;
+    const [x, y] = click;
+    if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
+
+    const col = Math.floor(x / GRID_CONFIG.CELL_SIZE);
+    const row = Math.floor(y / GRID_CONFIG.CELL_SIZE);
+    if (col < 0 || col >= GRID_CONFIG.SIZE || row < 0 || row >= GRID_CONFIG.SIZE) {
+      continue;
+    }
+
+    const id = row * GRID_CONFIG.SIZE + col;
+    if (selectedIds.has(id)) {
+      continue;
+    }
+
+    selectedIds.add(id);
+    const patch = patchById.get(id) || patches[id];
+    tiles.push({
+      id,
+      row,
+      col,
+      metrics: patch?.patch_metrics || null,
+    });
+  }
+
+  return tiles;
+};
 
 export default function ResultsPanel({ resultJson }) {
   console.log("ResultsPanel received:", resultJson);
+  const labeledTiles = getLabeledTiles(resultJson);
 
   if (!resultJson) {
     return (
@@ -44,28 +96,34 @@ export default function ResultsPanel({ resultJson }) {
       <div className="mb-6 p-4 bg-gray-800 rounded border border-gray-700">
         <h4 className="text-green-400 font-bold mb-3">📊 Image Metrics</h4>
         <p className="text-xs text-gray-400 mb-3">
-          Quality analysis of the labeled area:
+          {labeledTiles.length > 0
+            ? "Metrics for selected tiles:"
+            : "No labeled tiles selected for metrics."}
         </p>
-        <div className="space-y-2 text-sm">
-          <div className="flex justify-between">
-            <span className="text-gray-300">Line Straightness:</span>
-            <span className="text-yellow-400 font-bold">
-              {resultJson.patches[0]?.patch_metrics?.line || 0}%
-            </span>
+        {labeledTiles.length > 0 && (
+          <div className="space-y-2 text-sm">
+            <div className="grid grid-cols-4 text-xs text-gray-400 uppercase tracking-wide">
+              <span>Tile</span>
+              <span>Line</span>
+              <span>Value</span>
+              <span>Harmony</span>
+            </div>
+            {labeledTiles.map((tile, index) => (
+              <div key={`${tile.id}-${index}`} className="grid grid-cols-4 items-center">
+                <span className="text-gray-300">[{tile.row},{tile.col}]</span>
+                <span className="text-yellow-400 font-bold">
+                  {formatMetric(tile.metrics?.line)}
+                </span>
+                <span className="text-yellow-400 font-bold">
+                  {formatMetric(tile.metrics?.value)}
+                </span>
+                <span className="text-yellow-400 font-bold">
+                  {formatMetric(tile.metrics?.harmony)}
+                </span>
+              </div>
+            ))}
           </div>
-          <div className="flex justify-between">
-            <span className="text-gray-300">Value Grouping:</span>
-            <span className="text-yellow-400 font-bold">
-              {resultJson.patches[0]?.patch_metrics?.value || 0}%
-            </span>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-gray-300">Overall Harmony:</span>
-            <span className="text-yellow-400 font-bold">
-              {resultJson.patches[0]?.patch_metrics?.harmony || 0}%
-            </span>
-          </div>
-        </div>
+        )}
       </div>
 
       {/* ===== SECTION 2: Heatmap ===== */}

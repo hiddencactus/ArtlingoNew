@@ -2,7 +2,7 @@
 ==============================================================================
 IMAGE ANALYSIS MODULE
 ==============================================================================
-Analyzes 32x32 patches of images for metrics (line, value, harmony).
+Analyzes 64x64 patches of images for metrics (line, value, harmony).
 This is where we extract image features for training data.
 ==============================================================================
 """
@@ -16,9 +16,9 @@ class HarmonyAnalyzer:
     Analyzes an image and extracts patch-level metrics.
     
     CONCEPT:
-      - Image is 512x512 pixels
+      - Image is 1024x1024 pixels
       - Divided into 16x16 grid = 256 patches
-      - Each patch is 32x32 pixels
+      - Each patch is 64x64 pixels
       - For each patch, we calculate: line straightness, value grouping, harmony
     
     METRICS:
@@ -43,14 +43,14 @@ class HarmonyAnalyzer:
         else:
             self.image_gray = None
 
-    def analyze_patch(self, row, col, patch_size=32):
+    def analyze_patch(self, row, col, patch_size=64):
         """
-        Analyze a specific 32x32 patch at grid position (row, col).
+        Analyze a specific 64x64 patch at grid position (row, col).
         
         Args:
           row (int): Row index in 16x16 grid (0-15)
           col (int): Column index in 16x16 grid (0-15)
-          patch_size (int): Size of each patch in pixels (default 32)
+          patch_size (int): Size of each patch in pixels (default 64)
         
         Returns:
           dict: {"line": 0-100, "value": 0-100, "harmony": 0-100}

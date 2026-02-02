@@ -85,7 +85,10 @@ export default function ImageCanvas({
       {/* Interactive Grid Cells: 256 buttons (16x16) */}
       <div
         className="absolute top-0 left-0 w-full h-full grid"
-        style={{ gridTemplateColumns: `repeat(${SIZE}, 1fr)` }}
+        style={{
+          gridTemplateColumns: `repeat(${SIZE}, 1fr)`,
+          gridTemplateRows: `repeat(${SIZE}, 1fr)`,
+        }}
       >
         {Array.from({ length: SIZE * SIZE }).map((_, idx) => {
           const row = Math.floor(idx / SIZE);
@@ -103,7 +106,7 @@ export default function ImageCanvas({
               onMouseLeave={onCellLeave}
               disabled={isDisabled || (!isSelected && isFull)}
               className={`
-                w-8 h-8 transition-all border border-transparent
+                w-full h-full transition-all border border-transparent
                 ${isDisabled ? "cursor-not-allowed opacity-30" : "cursor-pointer"}
                 ${isSelected ? "bg-red-500 border-red-300 shadow-lg" : ""}
                 ${isHovered && !isSelected ? "bg-blue-400 bg-opacity-40 border-blue-300" : ""}

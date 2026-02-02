@@ -26,8 +26,8 @@ export const API_ENDPOINTS = {
 
 export const GRID_CONFIG = {
   SIZE: 16,              // 16x16 grid
-  CELL_SIZE: 32,         // Each cell = 32x32 pixels
-  IMAGE_SIZE: 512,       // 512x512 image
+  CELL_SIZE: 64,         // Each cell = 64x64 pixels
+  IMAGE_SIZE: 1024,      // 1024x1024 image
   MAX_CLICKS: 3,         // Max 3 selections per image
 };
 

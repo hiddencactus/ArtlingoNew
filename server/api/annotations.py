@@ -15,6 +15,9 @@ from db.storage import delete_annotation, load_annotations, save_annotation, get
 from api.images import image_exists, get_image_path
 from ml.analyzer import HarmonyAnalyzer
 
+GRID_SIZE = 16
+CELL_SIZE = 64
+
 
 def init_routes(app):
     """Register annotation routes with Flask app."""
@@ -76,12 +79,12 @@ def init_routes(app):
         
         # === BUILD BLURRED GRID ===
         # Start with empty 16x16 grid
-        grid = np.zeros((16, 16))
+        grid = np.zeros((GRID_SIZE, GRID_SIZE))
         
         # For each click, increment the cell (vote)
         for x, y in clicks:
-            col, row = int(x // 32), int(y // 32)
-            if 0 <= col < 16 and 0 <= row < 16:
+            col, row = int(x // CELL_SIZE), int(y // CELL_SIZE)
+            if 0 <= col < GRID_SIZE and 0 <= row < GRID_SIZE:
                 grid[row][col] += 1.0
         
         # Apply Gaussian blur to spread votes
@@ -94,11 +97,11 @@ def init_routes(app):
         # === EXTRACT PATCH METRICS ===
         # For each of 256 patches, analyze and create label
         patches = []
-        for row in range(16):
-            for col in range(16):
-                patch_metrics = analyzer.analyze_patch(row, col)
+        for row in range(GRID_SIZE):
+            for col in range(GRID_SIZE):
+                patch_metrics = analyzer.analyze_patch(row, col, patch_size=CELL_SIZE)
                 patches.append({
-                    "patch_id": row * 16 + col,
+                    "patch_id": row * GRID_SIZE + col,
                     "grid_pos": [row, col],
                     "patch_metrics": patch_metrics,
                     "target_label": round(float(blurred[row][col]), 4)
