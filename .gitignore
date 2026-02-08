@@ -21,3 +21,4 @@ build/
 .env.*.local
 npm-debug.log*
 yarn-debug.log*
+server/venv/Scripts/python.exe
