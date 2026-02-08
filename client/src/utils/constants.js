@@ -33,7 +33,7 @@ export const GRID_CONFIG = {
 
 export const ISSUE_SCOPES = ["line", "value", "color"];
 
-export const ARTISTS = ["Stephen", "Yash", "Artist 3", "Artist 4"];
+export const ARTISTS = ["Stephen", "Yash", "Artist 3", "Artist 4", "Edward"];
 
 export const STORAGE_KEYS = {
   ARTIST_ID: "artistId",
