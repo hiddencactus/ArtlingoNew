@@ -3,6 +3,7 @@
 .vscode/
 
 #python
+server/zenv
 venv/
 server/venv/
 .env
