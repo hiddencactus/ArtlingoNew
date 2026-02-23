@@ -1,5 +1,24 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Topbar from "../components/TopBar";
+
+const GRID_SIZE = 16;
+const MAJOR_ISSUE_MIN_SCORE = 0.5;
+const MAJOR_ISSUE_PERCENTILE = 0.7;
+
+const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
+
+const percentile = (values, p) => {
+  if (!values.length) return 0;
+  const sorted = [...values].sort((a, b) => a - b);
+  const idx = clamp(Math.floor((sorted.length - 1) * p), 0, sorted.length - 1);
+  return sorted[idx];
+};
+
+const issueColor = (t) => {
+  const x = clamp(t, 0, 1);
+  const hue = 52 - 52 * x; // yellow -> red
+  return `hsl(${hue}, 95%, ${60 - x * 14}%)`;
+};
 
 export default function UploadPage({ activeTab = "Upload", onTabChange = () => {} }) {
   const [file, setFile] = useState(null);
@@ -8,6 +27,12 @@ export default function UploadPage({ activeTab = "Upload", onTabChange = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [backendResult, setBackendResult] = useState(null);
   const [errorMsg, setErrorMsg] = useState("");
+  const [overlayOpacity, setOverlayOpacity] = useState(0.45);
+  const [overlayMode, setOverlayMode] = useState("overlay");
+  const [hoverTile, setHoverTile] = useState(null);
+
+  const overlayWrapRef = useRef(null);
+  const overlayCanvasRef = useRef(null);
 
 
   useEffect(() => {
@@ -75,6 +100,227 @@ export default function UploadPage({ activeTab = "Upload", onTabChange = () => {
       setIsLoading(false);
     }
   };
+
+  const heatmap16x16 = useMemo(() => {
+    if (Array.isArray(backendResult?.heatmap16x16)) return backendResult.heatmap16x16;
+    if (Array.isArray(backendResult?.heatmaps?.issue)) return backendResult.heatmaps.issue;
+    return null;
+  }, [backendResult]);
+
+  const heatmapMeta = useMemo(() => {
+    if (backendResult?.meta) return backendResult.meta;
+    const preprocess = backendResult?.debug?.preprocess;
+    if (!preprocess) return null;
+    return {
+      target_size: Number(preprocess.target_size),
+      resized_width: Number(preprocess.resized_width),
+      resized_height: Number(preprocess.resized_height),
+      pad_left: Number(preprocess.pad_left),
+      pad_top: Number(preprocess.pad_top),
+    };
+  }, [backendResult]);
+
+  const majorIssueStats = useMemo(() => {
+    if (!heatmap16x16) return null;
+
+    const rawScores = heatmap16x16.flat().map((v) => clamp(Number(v) || 0, 0, 1));
+    if (!rawScores.length) return null;
+
+    const pCutoff = percentile(rawScores, MAJOR_ISSUE_PERCENTILE);
+    const cutoff = clamp(Math.max(MAJOR_ISSUE_MIN_SCORE, pCutoff), 0, 1);
+    const shown = rawScores.filter((s) => s >= cutoff).length;
+
+    return {
+      cutoff,
+      shown,
+      total: rawScores.length,
+    };
+  }, [heatmap16x16]);
+
+  const topTiles = useMemo(() => {
+    if (!heatmap16x16 || !majorIssueStats) return [];
+
+    const flattened = [];
+    for (let r = 0; r < GRID_SIZE; r += 1) {
+      for (let c = 0; c < GRID_SIZE; c += 1) {
+        const score = clamp(Number(heatmap16x16[r]?.[c]) || 0, 0, 1);
+        if (score < majorIssueStats.cutoff) continue;
+        flattened.push({ row: r, col: c, score });
+      }
+    }
+
+    return flattened.sort((a, b) => b.score - a.score).slice(0, 8);
+  }, [heatmap16x16, majorIssueStats]);
+
+  const resolvedImageUrl = useMemo(() => {
+    const imageUrl = backendResult?.imageUrl;
+    if (!imageUrl) return null;
+    if (imageUrl.startsWith("http://") || imageUrl.startsWith("https://")) return imageUrl;
+    return `http://localhost:5000${imageUrl}`;
+  }, [backendResult]);
+
+  const displayImageUrl = resolvedImageUrl || previewUrl;
+
+  const drawHeatmap = useCallback(() => {
+    const canvas = overlayCanvasRef.current;
+    const wrapper = overlayWrapRef.current;
+    if (!canvas || !wrapper) return;
+
+    const cssWidth = wrapper.clientWidth;
+    const cssHeight = wrapper.clientHeight;
+    if (!cssWidth || !cssHeight) return;
+
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = Math.round(cssWidth * dpr);
+    canvas.height = Math.round(cssHeight * dpr);
+
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, cssWidth, cssHeight);
+
+    if (!heatmap16x16 || !heatmapMeta || !majorIssueStats) return;
+
+    const targetSize = Math.max(1, Number(heatmapMeta.target_size) || 1024);
+    const padLeft = clamp(Number(heatmapMeta.pad_left) || 0, 0, targetSize);
+    const padTop = clamp(Number(heatmapMeta.pad_top) || 0, 0, targetSize);
+    const resizedWidth = clamp(Number(heatmapMeta.resized_width) || targetSize, 0, targetSize);
+    const resizedHeight = clamp(Number(heatmapMeta.resized_height) || targetSize, 0, targetSize);
+
+    const contentLeft = padLeft;
+    const contentTop = padTop;
+    const contentRight = clamp(padLeft + resizedWidth, 0, targetSize);
+    const contentBottom = clamp(padTop + resizedHeight, 0, targetSize);
+
+    const scaleX = cssWidth / targetSize;
+    const scaleY = cssHeight / targetSize;
+    const tile = targetSize / GRID_SIZE;
+
+    for (let r = 0; r < GRID_SIZE; r += 1) {
+      for (let c = 0; c < GRID_SIZE; c += 1) {
+        const rawScore = clamp(Number(heatmap16x16[r]?.[c]) || 0, 0, 1);
+        if (rawScore < majorIssueStats.cutoff) continue;
+
+        const severity = clamp(
+          (rawScore - majorIssueStats.cutoff) / Math.max(1e-6, 1 - majorIssueStats.cutoff),
+          0,
+          1
+        );
+
+        const x0 = c * tile;
+        const y0 = r * tile;
+        const x1 = (c + 1) * tile;
+        const y1 = (r + 1) * tile;
+
+        const ix0 = Math.max(x0, contentLeft);
+        const iy0 = Math.max(y0, contentTop);
+        const ix1 = Math.min(x1, contentRight);
+        const iy1 = Math.min(y1, contentBottom);
+        if (ix1 <= ix0 || iy1 <= iy0) continue;
+
+        const drawX = ix0 * scaleX;
+        const drawY = iy0 * scaleY;
+        const drawW = (ix1 - ix0) * scaleX;
+        const drawH = (iy1 - iy0) * scaleY;
+
+        const alpha = overlayMode === "overlay" ? overlayOpacity : 1;
+        ctx.globalAlpha = alpha;
+        ctx.fillStyle = issueColor(severity);
+        ctx.fillRect(drawX, drawY, drawW, drawH);
+
+        if (overlayMode === "grid") {
+          ctx.globalAlpha = 0.25;
+          ctx.strokeStyle = "rgba(255, 255, 255, 0.75)";
+          ctx.strokeRect(drawX, drawY, drawW, drawH);
+        }
+      }
+    }
+
+    if (hoverTile) {
+      const x0 = hoverTile.col * tile;
+      const y0 = hoverTile.row * tile;
+      const x1 = (hoverTile.col + 1) * tile;
+      const y1 = (hoverTile.row + 1) * tile;
+
+      const ix0 = Math.max(x0, contentLeft);
+      const iy0 = Math.max(y0, contentTop);
+      const ix1 = Math.min(x1, contentRight);
+      const iy1 = Math.min(y1, contentBottom);
+
+      if (ix1 > ix0 && iy1 > iy0) {
+        ctx.globalAlpha = 1;
+        ctx.lineWidth = 2;
+        ctx.strokeStyle = "#ffffff";
+        ctx.strokeRect(ix0 * scaleX, iy0 * scaleY, (ix1 - ix0) * scaleX, (iy1 - iy0) * scaleY);
+      }
+    }
+
+    ctx.globalAlpha = 1;
+  }, [heatmap16x16, heatmapMeta, hoverTile, majorIssueStats, overlayMode, overlayOpacity]);
+
+  useEffect(() => {
+    drawHeatmap();
+  }, [drawHeatmap]);
+
+  useEffect(() => {
+    const wrapper = overlayWrapRef.current;
+    if (!wrapper) return undefined;
+
+    const onResize = () => drawHeatmap();
+    window.addEventListener("resize", onResize);
+
+    let observer = null;
+    if (typeof ResizeObserver !== "undefined") {
+      observer = new ResizeObserver(onResize);
+      observer.observe(wrapper);
+    }
+
+    return () => {
+      window.removeEventListener("resize", onResize);
+      if (observer) observer.disconnect();
+    };
+  }, [drawHeatmap]);
+
+  useEffect(() => {
+    setHoverTile(null);
+  }, [heatmap16x16, overlayMode]);
+
+  const handleOverlayMove = useCallback((e) => {
+    if (!heatmap16x16 || !heatmapMeta || !majorIssueStats || !overlayWrapRef.current) return;
+
+    const rect = overlayWrapRef.current.getBoundingClientRect();
+    if (!rect.width || !rect.height) return;
+
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+
+    const targetSize = Math.max(1, Number(heatmapMeta.target_size) || 1024);
+    const modelX = (x / rect.width) * targetSize;
+    const modelY = (y / rect.height) * targetSize;
+
+    const padLeft = clamp(Number(heatmapMeta.pad_left) || 0, 0, targetSize);
+    const padTop = clamp(Number(heatmapMeta.pad_top) || 0, 0, targetSize);
+    const resizedWidth = clamp(Number(heatmapMeta.resized_width) || targetSize, 0, targetSize);
+    const resizedHeight = clamp(Number(heatmapMeta.resized_height) || targetSize, 0, targetSize);
+    const contentRight = clamp(padLeft + resizedWidth, 0, targetSize);
+    const contentBottom = clamp(padTop + resizedHeight, 0, targetSize);
+
+    if (modelX < padLeft || modelX >= contentRight || modelY < padTop || modelY >= contentBottom) {
+      setHoverTile(null);
+      return;
+    }
+
+    const tile = targetSize / GRID_SIZE;
+    const col = clamp(Math.floor(modelX / tile), 0, GRID_SIZE - 1);
+    const row = clamp(Math.floor(modelY / tile), 0, GRID_SIZE - 1);
+    const score = clamp(Number(heatmap16x16[row]?.[col]) || 0, 0, 1);
+    if (score < majorIssueStats.cutoff) {
+      setHoverTile(null);
+      return;
+    }
+
+    setHoverTile({ row, col, score, x, y });
+  }, [heatmap16x16, heatmapMeta, majorIssueStats]);
 
   const getScore = (key) => {
     const v = backendResult?.metrics?.[key];
@@ -223,6 +469,137 @@ export default function UploadPage({ activeTab = "Upload", onTabChange = () => {
                 <span className="text-[var(--muted)] text-sm">No image selected.</span>
               )}
             </div>
+
+            {backendResult?.success && heatmap16x16 && heatmapMeta && displayImageUrl ? (
+              <div className="rounded-2xl border border-white/10 bg-black/15 p-4">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <div className="font-semibold">Suggestion Heatmap</div>
+                    <div className="text-xs text-[var(--muted)] mt-1">
+                      Medium-to-critical issue tiles are shown (yellow to red).
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      className={`pill ghost ${overlayMode === "overlay" ? "" : "opacity-70"}`}
+                      onClick={() => setOverlayMode("overlay")}
+                      style={{ padding: "6px 10px", fontSize: "12px" }}
+                    >
+                      Overlay
+                    </button>
+                    <button
+                      type="button"
+                      className={`pill ghost ${overlayMode === "grid" ? "" : "opacity-70"}`}
+                      onClick={() => setOverlayMode("grid")}
+                      style={{ padding: "6px 10px", fontSize: "12px" }}
+                    >
+                      Grid View
+                    </button>
+                  </div>
+                </div>
+
+                <div className="mt-3 flex items-center gap-3">
+                  <label htmlFor="overlay-opacity" className="text-xs text-[var(--muted)]">
+                    Opacity
+                  </label>
+                  <input
+                    id="overlay-opacity"
+                    type="range"
+                    min={0.1}
+                    max={1}
+                    step={0.05}
+                    value={overlayOpacity}
+                    onChange={(e) => setOverlayOpacity(Number(e.target.value))}
+                    disabled={overlayMode === "grid"}
+                    className={overlayMode === "grid" ? "opacity-60" : ""}
+                  />
+                  <span className="text-xs text-[var(--muted)]">
+                    {Math.round(overlayOpacity * 100)}%
+                  </span>
+                </div>
+                {majorIssueStats ? (
+                  <div className="mt-2 text-xs text-[var(--muted)]">
+                    Threshold: score >= {majorIssueStats.cutoff.toFixed(2)} ({majorIssueStats.shown}/{majorIssueStats.total} tiles shown)
+                  </div>
+                ) : null}
+
+                <div
+                  ref={overlayWrapRef}
+                  className="relative mt-4 w-full max-w-[700px] aspect-square mx-auto rounded-xl overflow-hidden border border-white/10 bg-white"
+                >
+                  <img
+                    src={displayImageUrl}
+                    alt="Suggestion base"
+                    className="absolute inset-0 h-full w-full object-contain"
+                    style={{ opacity: overlayMode === "overlay" ? 1 : 0 }}
+                  />
+                  <canvas
+                    ref={overlayCanvasRef}
+                    className="absolute inset-0 h-full w-full"
+                    onMouseMove={handleOverlayMove}
+                    onMouseLeave={() => setHoverTile(null)}
+                  />
+
+                  {hoverTile ? (
+                    <div
+                      className="absolute rounded-md border border-white/20 bg-black/80 px-2 py-1 text-xs text-white"
+                      style={{
+                        left: clamp(hoverTile.x + 12, 8, (overlayWrapRef.current?.clientWidth || 0) - 160),
+                        top: clamp(hoverTile.y + 12, 8, (overlayWrapRef.current?.clientHeight || 0) - 44),
+                        pointerEvents: "none",
+                      }}
+                    >
+                      r{hoverTile.row}, c{hoverTile.col} • {hoverTile.score.toFixed(3)}
+                    </div>
+                  ) : null}
+                </div>
+
+                <div className="mt-3 grid gap-2 md:grid-cols-2">
+                  <div className="text-xs text-[var(--muted)]">
+                    Content box: {heatmapMeta.resized_width}×{heatmapMeta.resized_height} (pad left {heatmapMeta.pad_left}, top {heatmapMeta.pad_top})
+                  </div>
+                  <div className="text-xs text-[var(--muted)] md:text-right">
+                    Tiling: {GRID_SIZE}×{GRID_SIZE}
+                  </div>
+                </div>
+
+                {topTiles.length ? (
+                  <div className="mt-3 rounded-xl border border-white/10 bg-black/20 p-3">
+                    <div className="text-xs font-semibold mb-2">Top medium/high issue tiles</div>
+                    <div className="grid gap-1 text-xs text-[var(--muted)] md:grid-cols-2">
+                      {topTiles.map((tile) => (
+                        <button
+                          key={`${tile.row}-${tile.col}`}
+                          type="button"
+                          className="text-left rounded-md border border-white/10 bg-black/15 px-2 py-1 hover:bg-black/30"
+                          onMouseEnter={() =>
+                            setHoverTile((prev) => ({
+                              ...(prev || {}),
+                              row: tile.row,
+                              col: tile.col,
+                              score: Number(tile.score) || 0,
+                              x: prev?.x || 12,
+                              y: prev?.y || 12,
+                            }))
+                          }
+                          onMouseLeave={() => setHoverTile(null)}
+                        >
+                          row {tile.row}, col {tile.col} • {(Number(tile.score) || 0).toFixed(3)}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ) : majorIssueStats ? (
+                  <div className="mt-3 rounded-xl border border-white/10 bg-black/20 p-3">
+                    <div className="text-xs text-[var(--muted)]">
+                      No medium/high issue tiles above threshold.
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
 
             {/* Error (friendly) */}
             {errorMsg ? (

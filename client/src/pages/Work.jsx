@@ -1,5 +1,24 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useMemo } from "react";
 import Topbar from "../components/TopBar";
+
+const GRID_SIZE = 16;
+const MAJOR_ISSUE_MIN_SCORE = 0.5;
+const MAJOR_ISSUE_PERCENTILE = 0.7;
+
+const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
+
+const percentile = (values, p) => {
+  if (!values.length) return 0;
+  const sorted = [...values].sort((a, b) => a - b);
+  const idx = clamp(Math.floor((sorted.length - 1) * p), 0, sorted.length - 1);
+  return sorted[idx];
+};
+
+const heatColor = (t) => {
+  const x = clamp(t, 0, 1);
+  const hue = 52 - 52 * x; // yellow -> red
+  return `hsl(${hue}, 95%, ${60 - x * 14}%)`;
+};
 
 export default function Work({ activeTab = "Train", onTabChange = () => {} }) {
   const [autoAnalyze, setAutoAnalyze] = useState(true);
@@ -10,6 +29,7 @@ export default function Work({ activeTab = "Train", onTabChange = () => {} }) {
 
   const [isLoading, setIsLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
+  const [overlayOpacity, setOverlayOpacity] = useState(0.45);
 
   const [layers, setLayers] = useState([
     { id: "layer-1", name: "Layer 1", visible: true },
@@ -329,6 +349,98 @@ export default function Work({ activeTab = "Train", onTabChange = () => {} }) {
     }
   };
 
+  const heatmap16x16 = useMemo(() => {
+    if (Array.isArray(suggestionResult?.heatmap16x16)) return suggestionResult.heatmap16x16;
+    if (Array.isArray(suggestionResult?.heatmaps?.issue)) return suggestionResult.heatmaps.issue;
+    return null;
+  }, [suggestionResult]);
+
+  const heatmapMeta = useMemo(() => {
+    if (suggestionResult?.meta) return suggestionResult.meta;
+    const preprocess = suggestionResult?.debug?.preprocess;
+    if (!preprocess) return null;
+    return {
+      target_size: Number(preprocess.target_size),
+      resized_width: Number(preprocess.resized_width),
+      resized_height: Number(preprocess.resized_height),
+      pad_left: Number(preprocess.pad_left),
+      pad_top: Number(preprocess.pad_top),
+    };
+  }, [suggestionResult]);
+
+  const majorIssueStats = useMemo(() => {
+    if (!heatmap16x16) return null;
+
+    const rawScores = heatmap16x16.flat().map((v) => clamp(Number(v) || 0, 0, 1));
+    if (!rawScores.length) return null;
+
+    const pCutoff = percentile(rawScores, MAJOR_ISSUE_PERCENTILE);
+    const cutoff = clamp(Math.max(MAJOR_ISSUE_MIN_SCORE, pCutoff), 0, 1);
+    const shown = rawScores.filter((s) => s >= cutoff).length;
+
+    return {
+      cutoff,
+      shown,
+      total: rawScores.length,
+    };
+  }, [heatmap16x16]);
+
+  const overlayTiles = useMemo(() => {
+    if (!heatmap16x16 || !heatmapMeta || !majorIssueStats) return [];
+
+    const targetSize = Math.max(1, Number(heatmapMeta.target_size) || 1024);
+    const padLeft = clamp(Number(heatmapMeta.pad_left) || 0, 0, targetSize);
+    const padTop = clamp(Number(heatmapMeta.pad_top) || 0, 0, targetSize);
+    const resizedWidth = Math.max(1, clamp(Number(heatmapMeta.resized_width) || targetSize, 0, targetSize));
+    const resizedHeight = Math.max(1, clamp(Number(heatmapMeta.resized_height) || targetSize, 0, targetSize));
+    const contentRight = clamp(padLeft + resizedWidth, 0, targetSize);
+    const contentBottom = clamp(padTop + resizedHeight, 0, targetSize);
+    const tileSize = targetSize / GRID_SIZE;
+
+    const tiles = [];
+    for (let r = 0; r < GRID_SIZE; r += 1) {
+      for (let c = 0; c < GRID_SIZE; c += 1) {
+        const x0 = c * tileSize;
+        const y0 = r * tileSize;
+        const x1 = (c + 1) * tileSize;
+        const y1 = (r + 1) * tileSize;
+
+        // Clip tile to content box to exclude letterbox padding completely
+        const ix0 = Math.max(x0, padLeft);
+        const iy0 = Math.max(y0, padTop);
+        const ix1 = Math.min(x1, contentRight);
+        const iy1 = Math.min(y1, contentBottom);
+        if (ix1 <= ix0 || iy1 <= iy0) continue;
+
+        // Map from model-content coordinates back to displayed canvas coordinates
+        const xPct = ((ix0 - padLeft) / resizedWidth) * 100;
+        const yPct = ((iy0 - padTop) / resizedHeight) * 100;
+        const wPct = ((ix1 - ix0) / resizedWidth) * 100;
+        const hPct = ((iy1 - iy0) / resizedHeight) * 100;
+
+        const rawScore = clamp(Number(heatmap16x16?.[r]?.[c]) || 0, 0, 1);
+        if (rawScore < majorIssueStats.cutoff) continue;
+
+        const severity = clamp(
+          (rawScore - majorIssueStats.cutoff) / Math.max(1e-6, 1 - majorIssueStats.cutoff),
+          0,
+          1
+        );
+
+        tiles.push({
+          key: `heatmap-${r}-${c}`,
+          xPct,
+          yPct,
+          wPct,
+          hPct,
+          fill: heatColor(severity),
+          rawScore,
+        });
+      }
+    }
+    return tiles;
+  }, [majorIssueStats, heatmapMeta, heatmap16x16]);
+
   // ---- UI helpers for user-friendly results ----
   const getScore = (key) => {
     const v = suggestionResult?.metrics?.[key];
@@ -506,6 +618,8 @@ export default function Work({ activeTab = "Train", onTabChange = () => {} }) {
                   pointerEvents: layer.id === activeLayerId && !isLoading ? "auto" : "none",
                   position: "absolute",
                   inset: 0,
+                  width: "100%",
+                  height: "100%",
                 }}
                 width={1600}
                 height={900}
@@ -516,6 +630,36 @@ export default function Work({ activeTab = "Train", onTabChange = () => {} }) {
                 onPointerCancel={handlePointerUp}
               />
             ))}
+
+            {/* Heatmap overlay (aligned using model letterbox metadata) */}
+            {showSuggestion && suggestionResult?.success && overlayTiles.length > 0 && (
+              <svg
+                viewBox="0 0 100 100"
+                preserveAspectRatio="none"
+                style={{
+                  position: "absolute",
+                  top: 0,
+                  left: 0,
+                  width: "100%",
+                  height: "100%",
+                  pointerEvents: "none",
+                }}
+              >
+                {overlayTiles.map((tile) => (
+                  <rect
+                    key={tile.key}
+                    x={tile.xPct}
+                    y={tile.yPct}
+                    width={tile.wPct}
+                    height={tile.hPct}
+                    fill={tile.fill}
+                    fillOpacity={overlayOpacity}
+                    stroke="rgba(255,255,255,0.16)"
+                    strokeWidth={0.08}
+                  />
+                ))}
+              </svg>
+            )}
 
             {/* Suggestion panel (user-facing) */}
             {showSuggestion && (
@@ -535,6 +679,51 @@ export default function Work({ activeTab = "Train", onTabChange = () => {} }) {
                 <div style={{ fontWeight: 800, fontSize: 14, marginBottom: 8 }}>
                   Suggestions
                 </div>
+
+                {suggestionResult?.success && overlayTiles.length > 0 && (
+                  <div style={{ marginBottom: 10, padding: "8px 10px", background: "rgba(255,255,255,0.05)", borderRadius: 10 }}>
+                    <div style={{ fontSize: 11, opacity: 0.8, marginBottom: 4 }}>
+                      <strong>Heatmap overlay:</strong> medium-to-critical issues are shown
+                    </div>
+                    <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                      <div
+                        style={{
+                          flex: 1,
+                          height: 6,
+                          background: "linear-gradient(to right, hsl(52, 95%, 60%), hsl(28, 95%, 54%), hsl(0, 95%, 46%))",
+                          borderRadius: 3,
+                        }}
+                      />
+                    </div>
+                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10, marginTop: 3, opacity: 0.7 }}>
+                      <span>Medium issue</span>
+                      <span>Critical issue</span>
+                    </div>
+                    <div style={{ fontSize: 10, opacity: 0.68, marginTop: 4 }}>
+                      Threshold: score >= {majorIssueStats?.cutoff?.toFixed(2)} ({majorIssueStats?.shown}/{majorIssueStats?.total} tiles shown)
+                    </div>
+                    <div style={{ marginTop: 6, display: "flex", alignItems: "center", gap: 8 }}>
+                      <span style={{ fontSize: 10, opacity: 0.75 }}>Opacity</span>
+                      <input
+                        type="range"
+                        min={0.1}
+                        max={0.9}
+                        step={0.05}
+                        value={overlayOpacity}
+                        onChange={(e) => setOverlayOpacity(Number(e.target.value))}
+                        style={{ width: "100%" }}
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {suggestionResult?.success && overlayTiles.length === 0 && majorIssueStats && (
+                  <div style={{ marginBottom: 10, padding: "8px 10px", background: "rgba(255,255,255,0.05)", borderRadius: 10 }}>
+                    <div style={{ fontSize: 11, opacity: 0.82 }}>
+                      No medium/high issue tiles above threshold ({majorIssueStats.cutoff.toFixed(2)}).
+                    </div>
+                  </div>
+                )}
 
                 {errorMsg ? (
                   <div className="rounded-2xl border border-red-500/30 bg-red-500/10 p-3 text-sm">

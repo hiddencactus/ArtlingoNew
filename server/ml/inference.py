@@ -14,7 +14,7 @@ from torchvision import models, transforms
 
 # Config
 
-MODEL_FILENAME = "artlingo_model.pt"
+MODEL_FILENAME = "best.pt"
 MODEL_PATH = os.path.join(os.path.dirname(__file__), MODEL_FILENAME)
 DEVICE = "cpu"
 
