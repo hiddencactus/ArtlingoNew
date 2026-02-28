@@ -368,7 +368,7 @@ body {
 }
 .canvas-box {
   position: relative;
-  background: #0b0d0f;
+  background: #ffffff;
   border-radius: 16px;
   overflow: hidden;
   aspect-ratio: 16 / 9;

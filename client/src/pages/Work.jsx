@@ -605,7 +605,7 @@ export default function Work({ activeTab = "Train", onTabChange = () => {} }) {
           </div>
 
           {/* Main drawing surface */}
-          <div className="canvas-box flex-1" ref={canvasContainerRef}>
+          <div className="canvas-box" ref={canvasContainerRef}>
             {layers.map((layer) => (
               <canvas
                 key={layer.id}
