@@ -376,6 +376,113 @@ body {
   border: 1px solid var(--line);
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.02);
 }
+.canvas-box--fullscreen,
+.canvas-box:fullscreen,
+.canvas-box:-webkit-full-screen {
+  width: 100vw;
+  height: 100vh;
+  max-width: none;
+  max-height: none;
+  aspect-ratio: auto;
+  border-radius: 0;
+  border: none;
+  box-shadow: none;
+}
+.canvas-element {
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  cursor: crosshair;
+}
+.canvas-box--pen-drawing,
+.canvas-box--pen-drawing * {
+  cursor: none !important;
+}
+.canvas-suggestion-panel {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  width: min(360px, 90vw);
+  max-height: calc(100% - 32px);
+  overflow: auto;
+  background: rgba(0, 0, 0, 0.72);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  padding: 14px;
+  border-radius: 16px;
+  z-index: 6;
+}
+.canvas-suggestion-panel--fullscreen,
+.canvas-box:fullscreen .canvas-suggestion-panel,
+.canvas-box:-webkit-full-screen .canvas-suggestion-panel {
+  top: 62px;
+  width: min(420px, 44vw);
+  max-height: calc(100vh - 78px);
+}
+.canvas-fs-tools {
+  position: absolute;
+  top: 14px;
+  left: 14px;
+  z-index: 8;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 10px;
+  border-radius: 12px;
+  background: rgba(0, 0, 0, 0.64);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  color: #f3f4f6;
+}
+.canvas-fs-tools-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.canvas-fs-auto {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.canvas-fs-tools-label {
+  font-size: 14px;
+  font-weight: 600;
+  opacity: 0.9;
+}
+.canvas-fs-size-value {
+  min-width: 42px;
+  text-align: center;
+  font-size: 14px;
+  font-weight: 600;
+}
+.canvas-suggestion-toggle {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  z-index: 8;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(0, 0, 0, 0.64);
+  color: #f3f4f6;
+}
+.canvas-suggestion-toggle:hover {
+  background: rgba(0, 0, 0, 0.78);
+}
+.canvas-fs-toggle {
+  position: absolute;
+  left: 14px;
+  bottom: 14px;
+  z-index: 7;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(0, 0, 0, 0.64);
+  color: #f3f4f6;
+  border-radius: 999px;
+  padding: 8px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1;
+}
+.canvas-fs-toggle:hover {
+  background: rgba(0, 0, 0, 0.78);
+}
 
 .canvas-suggestion-overlay {
   position: absolute;

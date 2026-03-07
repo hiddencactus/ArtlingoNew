@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useMemo } from "react";
+import { useState, useRef, useEffect, useMemo, useCallback } from "react";
 import Topbar from "../components/TopBar";
 
 const GRID_SIZE = 16;
@@ -21,7 +21,7 @@ const heatColor = (t) => {
 };
 
 export default function Work({ activeTab = "Train", onTabChange = () => {} }) {
-  const [autoAnalyze, setAutoAnalyze] = useState(true);
+  const [autoAnalyze, setAutoAnalyze] = useState(false);
 
   const [hasSuggestion] = useState(true);
   const [showSuggestion, setShowSuggestion] = useState(false);
@@ -30,6 +30,7 @@ export default function Work({ activeTab = "Train", onTabChange = () => {} }) {
   const [isLoading, setIsLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
   const [overlayOpacity, setOverlayOpacity] = useState(0.45);
+  const [isPenDrawing, setIsPenDrawing] = useState(false);
 
   const [layers, setLayers] = useState([
     { id: "layer-1", name: "Layer 1", visible: true },
@@ -45,7 +46,9 @@ export default function Work({ activeTab = "Train", onTabChange = () => {} }) {
   const canvasRefs = useRef({});
   const historiesRef = useRef({});
   const isDrawingRef = useRef(false);
+  const strokeMovedRef = useRef(false);
   const lastPointRef = useRef(null);
+  const activePointerIdRef = useRef(null);
   const canvasContainerRef = useRef(null);
 
   const BACKEND_URL = "http://localhost:5000/api/analyze";
@@ -108,6 +111,21 @@ export default function Work({ activeTab = "Train", onTabChange = () => {} }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [layers.length]);
 
+  useEffect(() => {
+    const onFullscreenChange = () => {
+      const container = canvasContainerRef.current;
+      const fullscreenElement = document.fullscreenElement || document.webkitFullscreenElement;
+      setIsFullscreen(Boolean(container && fullscreenElement === container));
+    };
+
+    document.addEventListener("fullscreenchange", onFullscreenChange);
+    document.addEventListener("webkitfullscreenchange", onFullscreenChange);
+    return () => {
+      document.removeEventListener("fullscreenchange", onFullscreenChange);
+      document.removeEventListener("webkitfullscreenchange", onFullscreenChange);
+    };
+  }, []);
+
   const handlePointerDown = (e) => {
     if (isLoading) return;
 
@@ -115,9 +133,12 @@ export default function Work({ activeTab = "Train", onTabChange = () => {} }) {
     if (!canvas || !ctx) return;
 
     if (e.pointerType === "touch" && !e.isPrimary) return;
+    if (isDrawingRef.current) return;
 
     const point = getCanvasCoords(e);
     if (!point) return;
+
+    e.preventDefault();
 
     if (tool === "Fill") {
       ctx.globalCompositeOperation = "source-over";
@@ -125,6 +146,17 @@ export default function Work({ activeTab = "Train", onTabChange = () => {} }) {
       ctx.fillRect(0, 0, canvas.width, canvas.height);
       snapshotCanvas();
       return;
+    }
+
+    activePointerIdRef.current = e.pointerId;
+    setIsPenDrawing((e.pointerType || "") === "pen");
+    strokeMovedRef.current = false;
+    if (typeof e.currentTarget?.setPointerCapture === "function") {
+      try {
+        e.currentTarget.setPointerCapture(e.pointerId);
+      } catch {
+        // Some input devices/browsers may reject capture; drawing still continues.
+      }
     }
 
     isDrawingRef.current = true;
@@ -155,6 +187,7 @@ export default function Work({ activeTab = "Train", onTabChange = () => {} }) {
   const handlePointerMove = (e) => {
     if (isLoading) return;
     if (!isDrawingRef.current) return;
+    if (activePointerIdRef.current != null && e.pointerId !== activePointerIdRef.current) return;
 
     const { ctx } = getCanvasAndCtx();
     if (!ctx) return;
@@ -163,12 +196,15 @@ export default function Work({ activeTab = "Train", onTabChange = () => {} }) {
     const last = lastPointRef.current;
     if (!point || !last) return;
 
+    e.preventDefault();
+
     const now = performance.now();
     const dt = now - last.time || 1;
 
     const dx = point.x - last.x;
     const dy = point.y - last.y;
     const dist = Math.sqrt(dx * dx + dy * dy);
+    if (dist >= 0.5) strokeMovedRef.current = true;
     const speed = dist / dt;
 
     const rawPressure = typeof e.pressure === "number" ? e.pressure : 0;
@@ -203,17 +239,108 @@ export default function Work({ activeTab = "Train", onTabChange = () => {} }) {
     };
   };
 
-  const handlePointerUp = async () => {
+  const handlePointerUp = async (e) => {
+    if (activePointerIdRef.current != null && e?.pointerId != null && e.pointerId !== activePointerIdRef.current) {
+      return;
+    }
     if (!isDrawingRef.current) return;
+
+    if (
+      e?.pointerId != null &&
+      typeof e.currentTarget?.hasPointerCapture === "function" &&
+      e.currentTarget.hasPointerCapture(e.pointerId)
+    ) {
+      try {
+        e.currentTarget.releasePointerCapture(e.pointerId);
+      } catch {
+        // Ignore release failures; state cleanup below is sufficient.
+      }
+    }
+
     isDrawingRef.current = false;
     lastPointRef.current = null;
+    activePointerIdRef.current = null;
+    setIsPenDrawing(false);
     snapshotCanvas();
 
     // auto analyze after stroke ends 
-    if (autoAnalyze && showSuggestion) {
+    if (autoAnalyze && showSuggestion && strokeMovedRef.current) {
       await analyzeDrawing();
     }
+    strokeMovedRef.current = false;
   };
+
+  const undoActiveLayer = useCallback(() => {
+    if (isLoading) return;
+    if (isDrawingRef.current) return;
+
+    const layerId = activeLayerId;
+    const historyState = historiesRef.current[layerId];
+    if (!historyState || historyState.history.length <= 1) return;
+
+    const { ctx } = getCanvasAndCtxForLayer(layerId);
+    if (!ctx) return;
+
+    const current = historyState.history.pop();
+    if (current) historyState.redo.push(current);
+
+    const previous = historyState.history[historyState.history.length - 1];
+    if (!previous) return;
+    ctx.putImageData(previous, 0, 0);
+  }, [activeLayerId, isLoading]);
+
+  const redoActiveLayer = useCallback(() => {
+    if (isLoading) return;
+    if (isDrawingRef.current) return;
+
+    const layerId = activeLayerId;
+    const historyState = historiesRef.current[layerId];
+    if (!historyState || historyState.redo.length === 0) return;
+
+    const { ctx } = getCanvasAndCtxForLayer(layerId);
+    if (!ctx) return;
+
+    const next = historyState.redo.pop();
+    if (!next) return;
+    historyState.history.push(next);
+    ctx.putImageData(next, 0, 0);
+  }, [activeLayerId, isLoading]);
+
+  useEffect(() => {
+    const onKeyDown = (e) => {
+      const target = e.target;
+      const tag = target?.tagName?.toLowerCase();
+      const isEditable =
+        target?.isContentEditable ||
+        tag === "input" ||
+        tag === "textarea" ||
+        tag === "select";
+      if (isEditable) return;
+
+      const key = String(e.key || "").toLowerCase();
+      const hasMod = e.ctrlKey || e.metaKey;
+      if (!hasMod) return;
+
+      if (key === "z") {
+        e.preventDefault();
+        if (e.shiftKey) {
+          redoActiveLayer();
+        } else {
+          undoActiveLayer();
+        }
+        return;
+      }
+
+      // Common Windows/Linux redo shortcut
+      if (key === "y") {
+        e.preventDefault();
+        redoActiveLayer();
+      }
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [redoActiveLayer, undoActiveLayer]);
 
   const addLayer = () => {
     if (isLoading) return;
@@ -235,20 +362,29 @@ export default function Work({ activeTab = "Train", onTabChange = () => {} }) {
     const container = canvasContainerRef.current;
     if (!container) return;
 
-    if (!document.fullscreenElement) {
+    const fullscreenElement = document.fullscreenElement || document.webkitFullscreenElement;
+
+    if (!fullscreenElement) {
       try {
-        await container.requestFullscreen();
-        setIsFullscreen(true);
+        if (typeof container.requestFullscreen === "function") {
+          await container.requestFullscreen();
+        } else if (typeof container.webkitRequestFullscreen === "function") {
+          container.webkitRequestFullscreen();
+        }
       } catch (err) {
         console.error("Fullscreen error", err);
       }
-    } else {
-      try {
+      return;
+    }
+
+    try {
+      if (typeof document.exitFullscreen === "function") {
         await document.exitFullscreen();
-      } catch (err) {
-        console.error("Exit fullscreen error", err);
+      } else if (typeof document.webkitExitFullscreen === "function") {
+        document.webkitExitFullscreen();
       }
-      setIsFullscreen(false);
+    } catch (err) {
+      console.error("Exit fullscreen error", err);
     }
   };
 
@@ -292,7 +428,7 @@ export default function Work({ activeTab = "Train", onTabChange = () => {} }) {
 
     const blob = await exportMergedPNGBlob();
     if (!blob) {
-      const msg = "Nothing to analyze yet — draw something first.";
+      const msg = "Nothing to analyze yet - draw something first.";
       setErrorMsg(msg);
       setSuggestionResult({ error: true, message: msg });
       setIsLoading(false);
@@ -499,17 +635,16 @@ export default function Work({ activeTab = "Train", onTabChange = () => {} }) {
       <Topbar active={activeTab} onChange={onTabChange} />
 
       {/* Blocking overlay + loading bar */}
-      {isLoading && (
+      {isLoading && !isFullscreen && (
         <div className="fixed inset-0 z-[9999] flex items-center justify-center">
-          <div className="absolute inset-0 bg-black/40" />
-          <div className="relative w-[min(520px,92vw)] rounded-2xl bg-white p-6 shadow-xl">
-            <div className="text-lg font-semibold">Analyzing your drawing...</div>
-            <div className="mt-2 text-sm text-gray-600">
-              Please wait — don’t tap anything while we process it.
-            </div>
+          <div className="absolute inset-0 bg-black/55" />
+          <div className="relative w-[min(520px,92vw)] rounded-2xl border border-gray-200 bg-white p-6 shadow-2xl">
+            <div className="text-center text-xl font-bold text-gray-900">Analyzing your drawing...</div>
 
-            <div className="mt-5 h-3 w-full overflow-hidden rounded-full bg-gray-200">
-              <div className="h-full w-1/3 animate-[progress_1.1s_infinite] rounded-full bg-gray-900" />
+            <div className="mt-6 flex justify-center">
+              <div className="h-3 w-[min(360px,82vw)] overflow-hidden rounded-full bg-gray-200">
+                <div className="h-full w-1/3 animate-[progress_1.1s_infinite] rounded-full bg-gray-900" />
+              </div>
             </div>
 
             <style>
@@ -552,45 +687,26 @@ export default function Work({ activeTab = "Train", onTabChange = () => {} }) {
 
           <div className={`canvas-toolbar ${isLoading ? "opacity-60 pointer-events-none" : ""}`}>
             <span className="chip">
-              Brush · Size {brushSize} · {color.toUpperCase()}
+              Brush - Size {brushSize} - {color.toUpperCase()}
             </span>
 
-            <div className="row gap-12">
-              <label className="row gap-8">
-                <span>Size (px)</span>
-                <div className="row" style={{ gap: 4 }}>
-                  <button
-                    type="button"
-                    className="pill ghost"
-                    onClick={() => setBrushSize((s) => Math.max(1, Math.min(100, s - 1)))}
-                    disabled={isLoading}
-                  >
-                    -
-                  </button>
-                  <input
-                    className="input"
-                    type="number"
-                    min={1}
-                    max={100}
-                    value={brushSize}
-                    onChange={(e) => {
-                      const val = Number(e.target.value);
-                      if (Number.isNaN(val)) return;
-                      setBrushSize(Math.max(1, Math.min(100, val)));
-                    }}
-                    style={{ width: "64px" }}
-                    disabled={isLoading}
-                  />
-                  <button
-                    type="button"
-                    className="pill ghost"
-                    onClick={() => setBrushSize((s) => Math.max(1, Math.min(100, s + 1)))}
-                    disabled={isLoading}
-                  >
-                    +
-                  </button>
-                </div>
-              </label>
+	            <div className="row gap-12">
+	              <label className="row gap-8">
+	                <span>Size (px)</span>
+	                <input
+	                  type="range"
+	                  min={1}
+	                  max={100}
+	                  step={1}
+	                  value={brushSize}
+	                  onChange={(e) => setBrushSize(Math.max(1, Math.min(100, Number(e.target.value) || 1)))}
+	                  style={{ width: "180px" }}
+	                  disabled={isLoading}
+	                />
+	                <span className="chip" style={{ minWidth: "44px", justifyContent: "center" }}>
+	                  {brushSize}
+	                </span>
+	              </label>
 
               <label className="row gap-8">
                 <span>Color</span>
@@ -605,7 +721,70 @@ export default function Work({ activeTab = "Train", onTabChange = () => {} }) {
           </div>
 
           {/* Main drawing surface */}
-          <div className="canvas-box" ref={canvasContainerRef}>
+          <div className={`canvas-box ${isFullscreen ? "canvas-box--fullscreen" : ""} ${isPenDrawing ? "canvas-box--pen-drawing" : ""}`} ref={canvasContainerRef}>
+            {isLoading && isFullscreen && (
+              <div className="absolute inset-0 z-[30] flex items-center justify-center">
+                <div className="absolute inset-0 bg-black/55" />
+                <div className="relative w-[min(520px,92vw)] rounded-2xl border border-gray-200 bg-white p-6 shadow-2xl">
+                  <div className="text-center text-xl font-bold text-gray-900">Analyzing your drawing...</div>
+
+                  <div className="mt-6 flex justify-center">
+                    <div className="h-3 w-[min(360px,82vw)] overflow-hidden rounded-full bg-gray-200">
+                      <div className="h-full w-1/3 animate-[progress_1.1s_infinite] rounded-full bg-gray-900" />
+                    </div>
+                  </div>
+
+                  <style>
+                    {`
+                      @keyframes progress {
+                        0% { transform: translateX(-120%); }
+                        100% { transform: translateX(360%); }
+                      }
+                    `}
+                  </style>
+                </div>
+              </div>
+            )}
+
+            {isFullscreen && (
+              <div className="canvas-fs-tools">
+                <label className="canvas-fs-tools-group">
+                  <span className="canvas-fs-tools-label">Size</span>
+                  <input
+                    type="range"
+                    min={1}
+                    max={100}
+                    step={1}
+                    value={brushSize}
+                    onChange={(e) => setBrushSize(Math.max(1, Math.min(100, Number(e.target.value) || 1)))}
+                    disabled={isLoading}
+                    style={{ width: "160px" }}
+                  />
+                  <span className="canvas-fs-size-value">{brushSize}px</span>
+                </label>
+
+                <label className="canvas-fs-tools-group">
+                  <span className="canvas-fs-tools-label">Color</span>
+                  <input
+                    type="color"
+                    value={color}
+                    onChange={(e) => setColor(e.target.value)}
+                    disabled={isLoading}
+                  />
+                </label>
+
+                <label className="canvas-fs-auto">
+                  <input
+                    type="checkbox"
+                    checked={autoAnalyze}
+                    onChange={(e) => setAutoAnalyze(e.target.checked)}
+                    disabled={isLoading}
+                  />
+                  <span className="canvas-fs-tools-label">Auto</span>
+                </label>
+              </div>
+            )}
+
             {layers.map((layer) => (
               <canvas
                 key={layer.id}
@@ -620,14 +799,15 @@ export default function Work({ activeTab = "Train", onTabChange = () => {} }) {
                   inset: 0,
                   width: "100%",
                   height: "100%",
+                  touchAction: "none",
                 }}
                 width={1600}
                 height={900}
                 onPointerDown={handlePointerDown}
                 onPointerMove={handlePointerMove}
                 onPointerUp={handlePointerUp}
-                onPointerLeave={handlePointerUp}
                 onPointerCancel={handlePointerUp}
+                onLostPointerCapture={handlePointerUp}
               />
             ))}
 
@@ -661,21 +841,20 @@ export default function Work({ activeTab = "Train", onTabChange = () => {} }) {
               </svg>
             )}
 
+            {isFullscreen && (
+              <button
+                type="button"
+                className={`canvas-suggestion-toggle pill ghost ${(!hasSuggestion || isLoading) ? "opacity-60 cursor-not-allowed" : ""}`}
+                disabled={!hasSuggestion || isLoading}
+                onClick={handleSuggestionClick}
+              >
+                {showSuggestion ? "Hide suggestion" : "View suggestion"}
+              </button>
+            )}
+
             {/* Suggestion panel (user-facing) */}
             {showSuggestion && (
-              <div
-                style={{
-                  position: "absolute",
-                  top: 16,
-                  right: 16,
-                  width: 360,
-                  maxWidth: "min(360px, 90vw)",
-                  background: "rgba(0,0,0,0.72)",
-                  border: "1px solid rgba(255,255,255,0.12)",
-                  padding: "14px 14px",
-                  borderRadius: "16px",
-                }}
-              >
+              <div className={`canvas-suggestion-panel ${isFullscreen ? "canvas-suggestion-panel--fullscreen" : ""}`}>
                 <div style={{ fontWeight: 800, fontSize: 14, marginBottom: 8 }}>
                   Suggestions
                 </div>
@@ -727,7 +906,7 @@ export default function Work({ activeTab = "Train", onTabChange = () => {} }) {
 
                 {errorMsg ? (
                   <div className="rounded-2xl border border-red-500/30 bg-red-500/10 p-3 text-sm">
-                    <div className="font-semibold">Couldn’t analyze</div>
+                    <div className="font-semibold">Couldn't analyze</div>
                     <div className="text-[var(--muted)] mt-1">{errorMsg}</div>
                   </div>
                 ) : suggestionResult?.success ? (
@@ -789,7 +968,7 @@ export default function Work({ activeTab = "Train", onTabChange = () => {} }) {
                   </>
                 ) : (
                   <div style={{ fontSize: 12, opacity: 0.85 }}>
-                    Click “View suggestion” to analyze your drawing.
+                    Click "View suggestion" to analyze your drawing.
                   </div>
                 )}
               </div>
@@ -801,7 +980,7 @@ export default function Work({ activeTab = "Train", onTabChange = () => {} }) {
               onClick={toggleFullscreen}
               disabled={isLoading}
             >
-              {isFullscreen ? "⤡" : "⤢"}
+              {isFullscreen ? "Exit Fullscreen" : "Fullscreen"}
             </button>
           </div>
         </section>

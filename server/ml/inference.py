@@ -2,7 +2,7 @@
 import io
 import os
 import traceback
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 from PIL import Image
@@ -258,6 +258,66 @@ def _convolve2d(image: np.ndarray, kernel: np.ndarray) -> np.ndarray:
     return np.tensordot(windows, kernel, axes=((2, 3), (0, 1))).astype(np.float32)
 
 
+def _neighbor_count_8(mask: np.ndarray) -> np.ndarray:
+    mask_u8 = mask.astype(np.uint8)
+    padded = np.pad(mask_u8, 1, mode="constant", constant_values=0)
+    windows = np.lib.stride_tricks.sliding_window_view(padded, (3, 3))
+    counts = windows.sum(axis=(2, 3)).astype(np.int16)
+    return counts - mask_u8.astype(np.int16)
+
+
+def _connected_component_sizes(mask: np.ndarray) -> List[int]:
+    h, w = mask.shape
+    visited = np.zeros_like(mask, dtype=bool)
+    ys, xs = np.nonzero(mask)
+    sizes = []
+
+    for y, x in zip(ys.tolist(), xs.tolist()):
+        if visited[y, x]:
+            continue
+
+        stack = [(y, x)]
+        visited[y, x] = True
+        size = 0
+
+        while stack:
+            cy, cx = stack.pop()
+            size += 1
+
+            y0 = max(0, cy - 1)
+            y1 = min(h, cy + 2)
+            x0 = max(0, cx - 1)
+            x1 = min(w, cx + 2)
+
+            for ny in range(y0, y1):
+                for nx in range(x0, x1):
+                    if mask[ny, nx] and not visited[ny, nx]:
+                        visited[ny, nx] = True
+                        stack.append((ny, nx))
+
+        sizes.append(size)
+
+    return sizes
+
+
+def _boundary_roughness(ink_mask: np.ndarray, boundary_pixel_count: int) -> Tuple[float, float, float]:
+    if boundary_pixel_count <= 0:
+        return 0.0, 0.0, 0.0
+
+    smooth_kernel = np.ones((3, 3), dtype=np.float32) / 9.0
+    smoothed_mask = _convolve2d(ink_mask.astype(np.float32), smooth_kernel) > 0.45
+    smoothed_neighbors = _neighbor_count_8(smoothed_mask)
+    smoothed_boundary = smoothed_mask & (smoothed_neighbors < 8)
+    smoothed_boundary_count = int(np.count_nonzero(smoothed_boundary))
+
+    roughness_ratio = float(max(
+        0.0,
+        (boundary_pixel_count - smoothed_boundary_count) / max(boundary_pixel_count, 1),
+    ))
+    smoothness_quality = _clamp01(1.0 - ((roughness_ratio - 0.004) / 0.05))
+    return roughness_ratio, smoothness_quality, float(smoothed_boundary_count)
+
+
 def _canny_edges(gray_u8: np.ndarray, low_threshold: float = 50.0, high_threshold: float = 150.0) -> np.ndarray:
     gray = gray_u8.astype(np.float32)
 
@@ -368,22 +428,102 @@ def _legacy_line_score(rgb_u8: np.ndarray) -> Tuple[int, Dict[str, float]]:
     gray_u8 = _gray_u8_from_rgb(rgb_u8)
     ink_mask = gray_u8 < 250
     ink_pixel_count = int(np.count_nonzero(ink_mask))
+    total_pixels = int(gray_u8.size)
     if ink_pixel_count == 0:
         return 0, {
             "ink_pixel_count": 0.0,
             "edge_pixel_count": 0.0,
             "edge_ratio": 0.0,
+            "expected_edge_ratio": 0.0,
+            "ratio_quality": 0.0,
+            "continuity_quality": 0.0,
+            "coverage": 0.0,
+            "coverage_confidence": 0.0,
         }
 
     edges = _canny_edges(gray_u8, low_threshold=50.0, high_threshold=150.0)
     edge_pixel_count = int(np.count_nonzero(edges))
-    ratio = float(edge_pixel_count / ink_pixel_count)
-    score = 100 - int((ratio - 0.15) * 300.0)
+    edge_ratio = float(edge_pixel_count / max(ink_pixel_count, 1))
 
-    return max(0, min(100, score)), {
+    ink_neighbors = _neighbor_count_8(ink_mask)
+    boundary_mask = ink_mask & (ink_neighbors < 8)
+    boundary_pixel_count = int(np.count_nonzero(boundary_mask))
+    stroke_width_est = (
+        float((2.0 * ink_pixel_count) / boundary_pixel_count)
+        if boundary_pixel_count > 0
+        else 1.0
+    )
+    stroke_width_est = float(np.clip(stroke_width_est, 1.0, 24.0))
+    expected_edge_ratio = float(np.clip(2.0 / stroke_width_est, 0.18, 1.15))
+
+    if edge_ratio >= expected_edge_ratio:
+        ratio_error = (edge_ratio - expected_edge_ratio) * 0.55
+    else:
+        ratio_error = (expected_edge_ratio - edge_ratio) * 1.15
+    ratio_quality = float(np.exp(-2.4 * (ratio_error ** 1.25)))
+
+    edge_neighbors = _neighbor_count_8(edges)
+    edge_den = float(max(edge_pixel_count, 1))
+    isolated_ratio = float(np.count_nonzero(edges & (edge_neighbors == 0)) / edge_den)
+    endpoint_ratio = float(np.count_nonzero(edges & (edge_neighbors == 1)) / edge_den)
+    branch_ratio = float(np.count_nonzero(edges & (edge_neighbors >= 3)) / edge_den)
+
+    continuity_quality = _clamp01(
+        1.0
+        - (isolated_ratio * 3.0)
+        - (max(0.0, endpoint_ratio - 0.12) * 0.8)
+    )
+
+    coverage = float(ink_pixel_count / max(total_pixels, 1))
+    coverage_confidence = _clamp01((coverage - 0.0008) / 0.008)
+
+    component_sizes = _connected_component_sizes(ink_mask)
+    component_count = len(component_sizes)
+    tiny_component_count = sum(1 for size in component_sizes if size <= 6)
+    tiny_component_ratio = float(tiny_component_count / max(component_count, 1))
+    component_density = float((component_count * 10000.0) / max(ink_pixel_count, 1))
+    fragmentation_penalty = _clamp01((tiny_component_ratio - 0.10) / 0.45)
+    density_penalty = _clamp01((component_density - 80.0) / 1200.0)
+    structure_quality = _clamp01(1.0 - max(fragmentation_penalty, density_penalty))
+
+    boundary_roughness_ratio, smoothness_quality, smoothed_boundary_pixel_count = _boundary_roughness(
+        ink_mask,
+        boundary_pixel_count,
+    )
+
+    raw_quality = (
+        (0.34 * ratio_quality) +
+        (0.16 * continuity_quality) +
+        (0.16 * structure_quality) +
+        (0.34 * smoothness_quality)
+    )
+    neutral_quality = 0.40 + (0.20 * structure_quality)
+    quality = (raw_quality * coverage_confidence) + (neutral_quality * (1.0 - coverage_confidence))
+    score = _clamp_0_100(quality * 100.0)
+
+    return score, {
         "ink_pixel_count": float(ink_pixel_count),
         "edge_pixel_count": float(edge_pixel_count),
-        "edge_ratio": ratio,
+        "edge_ratio": edge_ratio,
+        "boundary_pixel_count": float(boundary_pixel_count),
+        "stroke_width_estimate_px": stroke_width_est,
+        "expected_edge_ratio": expected_edge_ratio,
+        "ratio_error": float(ratio_error),
+        "ratio_quality": ratio_quality,
+        "isolated_edge_ratio": isolated_ratio,
+        "endpoint_edge_ratio": endpoint_ratio,
+        "branch_edge_ratio": branch_ratio,
+        "continuity_quality": continuity_quality,
+        "coverage": coverage,
+        "coverage_confidence": coverage_confidence,
+        "component_count": float(component_count),
+        "tiny_component_ratio": tiny_component_ratio,
+        "component_density_per_10k_ink": component_density,
+        "structure_quality": structure_quality,
+        "boundary_roughness_ratio": boundary_roughness_ratio,
+        "smoothed_boundary_pixel_count": smoothed_boundary_pixel_count,
+        "smoothness_quality": smoothness_quality,
+        "raw_quality": raw_quality,
     }
 
 
@@ -748,6 +888,9 @@ def run_inference(img_bytes: bytes) -> Dict[str, Any]:
         line_model = _clamp01(float(aux_mean[0]))
         value_model = _clamp01(float(aux_mean[1]))
         harmony_model = _clamp01(float(aux_mean[2]))
+        line_model_score = _clamp_0_100(line_model * 100.0)
+        value_model_score = _clamp_0_100(value_model * 100.0)
+        harmony_model_score = _clamp_0_100(harmony_model * 100.0)
 
         metric_img = _resize_for_legacy_metrics(raw_img)
         metric_rgb_u8 = _rgb_u8_from_pil(metric_img)
@@ -755,15 +898,19 @@ def run_inference(img_bytes: bytes) -> Dict[str, Any]:
         value_score, value_debug = _legacy_value_score(metric_rgb_u8)
         harmony_score, harmony_debug = _legacy_harmony_score(metric_rgb_u8)
 
+        line_blended_score = _clamp_0_100((line_model_score + line_score) * 0.5)
+        value_blended_score = _clamp_0_100((value_model_score + value_score) * 0.5)
+        harmony_blended_score = _clamp_0_100((harmony_model_score + harmony_score) * 0.5)
+
         overall_good = _clamp_0_100((1.0 - float(issue_heatmap.mean())) * 100.0)
 
         return {
             "success": True,
             "model_used": True,
             "metrics": {
-                "line": line_score,
-                "value": value_score,
-                "harmony": harmony_score,
+                "line": line_blended_score,
+                "value": value_blended_score,
+                "harmony": harmony_blended_score,
             },
             "overall": overall_good,
             "heatmaps": {
@@ -791,9 +938,15 @@ def run_inference(img_bytes: bytes) -> Dict[str, Any]:
                     "line_model": line_model,
                     "value_model": value_model,
                     "harmony_model": harmony_model,
+                    "line_model_score": line_model_score,
+                    "value_model_score": value_model_score,
+                    "harmony_model_score": harmony_model_score,
                     "line_legacy": line_score / 100.0,
                     "value_legacy": value_score / 100.0,
                     "harmony_legacy": harmony_score / 100.0,
+                    "line_blended": line_blended_score / 100.0,
+                    "value_blended": value_blended_score / 100.0,
+                    "harmony_blended": harmony_blended_score / 100.0,
                     "legacy_metric_image_size": {
                         "width": int(metric_img.size[0]),
                         "height": int(metric_img.size[1]),
@@ -807,8 +960,8 @@ def run_inference(img_bytes: bytes) -> Dict[str, Any]:
                     "Inference matches training geometry by letterboxing input to a fixed square "
                     f"({TARGET_SIZE}x{TARGET_SIZE}), then tiling 16x16. main_head -> issue via sigmoid; "
                     "aux_head -> regression for [line,value,harmony] (no sigmoid). "
-                    "User-facing metrics are restored to the prior K-means, Canny-edge, "
-                    "and grayscale-percentile pipeline."
+                    "User-facing line/value/harmony are 50/50 blends of aux-head outputs and "
+                    "the prior K-means, Canny-edge, and grayscale-percentile pipeline."
                 ),
             },
         }
