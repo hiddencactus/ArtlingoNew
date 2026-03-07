@@ -674,11 +674,7 @@ export default function Work({ activeTab = "Train", onTabChange = () => {} }) {
           </header>
 
           <div className={`canvas-toolbar ${isLoading ? "opacity-60 pointer-events-none" : ""}`}>
-            <span className="chip">
-              Brush - Size {brushSize} - {color.toUpperCase()}
-            </span>
-
-	            <div className="row gap-12">
+		            <div className="row gap-12">
 	              <label className="row gap-8">
 	                <span>Size (px)</span>
 	                <input
@@ -957,8 +953,18 @@ export default function Work({ activeTab = "Train", onTabChange = () => {} }) {
               className={`canvas-fs-toggle ${isLoading ? "opacity-60 cursor-not-allowed" : ""}`}
               onClick={toggleFullscreen}
               disabled={isLoading}
+              title={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
+              aria-label={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
             >
-              {isFullscreen ? "Exit Fullscreen" : "Fullscreen"}
+              {isFullscreen ? (
+                <svg className="tool-icon" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+                  <path d="M1 6h1V2h4V1H1zm14 0h-1V2h-4V1h5zM1 10h1v4h4v1H1zm14 0h-1v4h-4v1h5zM4 8.5A.5.5 0 0 1 4.5 8h2A.5.5 0 0 1 7 8.5v2a.5.5 0 0 1-.5.5h-2a.5.5 0 0 1-.5-.5zm5 0A.5.5 0 0 1 9.5 8h2a.5.5 0 0 1 .5.5v2a.5.5 0 0 1-.5.5h-2a.5.5 0 0 1-.5-.5z" />
+                </svg>
+              ) : (
+                <svg className="tool-icon" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+                  <path d="M1 1h5v1H2v4H1zm9 0h5v5h-1V2h-4zM1 10h1v4h4v1H1zm13 0h1v5h-5v-1h4z" />
+                </svg>
+              )}
             </button>
           </div>
         </section>
