@@ -518,12 +518,6 @@ export default function UploadPage({ activeTab = "Upload", onTabChange = () => {
                     {Math.round(overlayOpacity * 100)}%
                   </span>
                 </div>
-                {majorIssueStats ? (
-                  <div className="mt-2 text-xs text-[var(--muted)]">
-                    Threshold: score > {majorIssueStats.cutoff.toFixed(2)} ({majorIssueStats.shown}/{majorIssueStats.total} tiles shown)
-                  </div>
-                ) : null}
-
                 <div
                   ref={overlayWrapRef}
                   className="relative mt-4 w-full max-w-[700px] aspect-square mx-auto rounded-xl overflow-hidden border border-white/10 bg-white"
@@ -615,7 +609,7 @@ export default function UploadPage({ activeTab = "Upload", onTabChange = () => {
                   <div>
                     <div className="text-lg font-semibold">Your Results</div>
                     <div className="text-sm text-[var(--muted)] mt-1">
-                      Quick feedback — no technical stuff.
+                      Quick feedback
                     </div>
                   </div>
 

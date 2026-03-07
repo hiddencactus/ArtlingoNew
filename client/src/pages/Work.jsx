@@ -852,9 +852,6 @@ export default function Work({ activeTab = "Train", onTabChange = () => {} }) {
                       <span>Medium issue</span>
                       <span>Critical issue</span>
                     </div>
-                    <div style={{ fontSize: 10, opacity: 0.68, marginTop: 4 }}>
-                      Threshold: score > {majorIssueStats?.cutoff?.toFixed(2)} ({majorIssueStats?.shown}/{majorIssueStats?.total} tiles shown)
-                    </div>
                     <div style={{ marginTop: 6, display: "flex", alignItems: "center", gap: 8 }}>
                       <span style={{ fontSize: 10, opacity: 0.75 }}>Opacity</span>
                       <input
@@ -885,10 +882,7 @@ export default function Work({ activeTab = "Train", onTabChange = () => {} }) {
                   </div>
                 ) : suggestionResult?.success ? (
                   <>
-                    <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12 }}>
-                      <div style={{ opacity: 0.9, fontSize: 12 }}>
-                        Quick feedback (no technical details).
-                      </div>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 12 }}>
 
                       {overallScore != null ? (
                         <div
