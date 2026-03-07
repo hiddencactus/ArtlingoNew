@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, useMemo, useCallback } from "react";
 import Topbar from "../components/TopBar";
 
 const GRID_SIZE = 16;
-const MAJOR_ISSUE_MIN_SCORE = 0.5;
+const MAJOR_ISSUE_MIN_SCORE = 0.7;
 const MAJOR_ISSUE_PERCENTILE = 0.7;
 
 const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
@@ -21,8 +21,6 @@ const heatColor = (t) => {
 };
 
 export default function Work({ activeTab = "Train", onTabChange = () => {} }) {
-  const [autoAnalyze, setAutoAnalyze] = useState(false);
-
   const [hasSuggestion] = useState(true);
   const [showSuggestion, setShowSuggestion] = useState(false);
   const [suggestionResult, setSuggestionResult] = useState(null);
@@ -46,7 +44,6 @@ export default function Work({ activeTab = "Train", onTabChange = () => {} }) {
   const canvasRefs = useRef({});
   const historiesRef = useRef({});
   const isDrawingRef = useRef(false);
-  const strokeMovedRef = useRef(false);
   const lastPointRef = useRef(null);
   const activePointerIdRef = useRef(null);
   const canvasContainerRef = useRef(null);
@@ -150,7 +147,6 @@ export default function Work({ activeTab = "Train", onTabChange = () => {} }) {
 
     activePointerIdRef.current = e.pointerId;
     setIsPenDrawing((e.pointerType || "") === "pen");
-    strokeMovedRef.current = false;
     if (typeof e.currentTarget?.setPointerCapture === "function") {
       try {
         e.currentTarget.setPointerCapture(e.pointerId);
@@ -204,7 +200,6 @@ export default function Work({ activeTab = "Train", onTabChange = () => {} }) {
     const dx = point.x - last.x;
     const dy = point.y - last.y;
     const dist = Math.sqrt(dx * dx + dy * dy);
-    if (dist >= 0.5) strokeMovedRef.current = true;
     const speed = dist / dt;
 
     const rawPressure = typeof e.pressure === "number" ? e.pressure : 0;
@@ -262,12 +257,6 @@ export default function Work({ activeTab = "Train", onTabChange = () => {} }) {
     activePointerIdRef.current = null;
     setIsPenDrawing(false);
     snapshotCanvas();
-
-    // auto analyze after stroke ends 
-    if (autoAnalyze && showSuggestion && strokeMovedRef.current) {
-      await analyzeDrawing();
-    }
-    strokeMovedRef.current = false;
   };
 
   const undoActiveLayer = useCallback(() => {
@@ -319,7 +308,16 @@ export default function Work({ activeTab = "Train", onTabChange = () => {} }) {
 
       const key = String(e.key || "").toLowerCase();
       const hasMod = e.ctrlKey || e.metaKey;
-      if (!hasMod) return;
+      if (!hasMod) {
+        if (key === "b") {
+          e.preventDefault();
+          setTool("Brush");
+        } else if (key === "e") {
+          e.preventDefault();
+          setTool("Eraser");
+        }
+        return;
+      }
 
       if (key === "z") {
         e.preventDefault();
@@ -512,7 +510,7 @@ export default function Work({ activeTab = "Train", onTabChange = () => {} }) {
 
     const pCutoff = percentile(rawScores, MAJOR_ISSUE_PERCENTILE);
     const cutoff = clamp(Math.max(MAJOR_ISSUE_MIN_SCORE, pCutoff), 0, 1);
-    const shown = rawScores.filter((s) => s >= cutoff).length;
+    const shown = rawScores.filter((s) => s > cutoff).length;
 
     return {
       cutoff,
@@ -555,7 +553,7 @@ export default function Work({ activeTab = "Train", onTabChange = () => {} }) {
         const hPct = ((iy1 - iy0) / resizedHeight) * 100;
 
         const rawScore = clamp(Number(heatmap16x16?.[r]?.[c]) || 0, 0, 1);
-        if (rawScore < majorIssueStats.cutoff) continue;
+        if (rawScore <= majorIssueStats.cutoff) continue;
 
         const severity = clamp(
           (rawScore - majorIssueStats.cutoff) / Math.max(1e-6, 1 - majorIssueStats.cutoff),
@@ -665,16 +663,6 @@ export default function Work({ activeTab = "Train", onTabChange = () => {} }) {
           <header className="panel-head">
             <h2>Training Canvas</h2>
             <div className="row gap-12">
-              <label className={`checkbox ${isLoading ? "opacity-60 pointer-events-none" : ""}`}>
-                <input
-                  type="checkbox"
-                  checked={autoAnalyze}
-                  onChange={(e) => setAutoAnalyze(e.target.checked)}
-                  disabled={isLoading}
-                />
-                <span>Auto-analyze</span>
-              </label>
-
               <button
                 className={`pill ghost ${(!hasSuggestion || isLoading) ? "opacity-60 cursor-not-allowed" : ""}`}
                 disabled={!hasSuggestion || isLoading}
@@ -771,16 +759,6 @@ export default function Work({ activeTab = "Train", onTabChange = () => {} }) {
                     onChange={(e) => setColor(e.target.value)}
                     disabled={isLoading}
                   />
-                </label>
-
-                <label className="canvas-fs-auto">
-                  <input
-                    type="checkbox"
-                    checked={autoAnalyze}
-                    onChange={(e) => setAutoAnalyze(e.target.checked)}
-                    disabled={isLoading}
-                  />
-                  <span className="canvas-fs-tools-label">Auto</span>
                 </label>
               </div>
             )}
@@ -879,7 +857,7 @@ export default function Work({ activeTab = "Train", onTabChange = () => {} }) {
                       <span>Critical issue</span>
                     </div>
                     <div style={{ fontSize: 10, opacity: 0.68, marginTop: 4 }}>
-                      Threshold: score >= {majorIssueStats?.cutoff?.toFixed(2)} ({majorIssueStats?.shown}/{majorIssueStats?.total} tiles shown)
+                      Threshold: score > {majorIssueStats?.cutoff?.toFixed(2)} ({majorIssueStats?.shown}/{majorIssueStats?.total} tiles shown)
                     </div>
                     <div style={{ marginTop: 6, display: "flex", alignItems: "center", gap: 8 }}>
                       <span style={{ fontSize: 10, opacity: 0.75 }}>Opacity</span>
@@ -996,25 +974,22 @@ export default function Work({ activeTab = "Train", onTabChange = () => {} }) {
             <button
               className={`tool-btn ${tool === "Brush" ? "tool-btn--active" : ""}`}
               title="Brush"
+              aria-label="Brush"
               onClick={() => setTool("Brush")}
             >
-              B
+              <svg className="tool-icon" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+                <path d="M15.825.12a.5.5 0 0 1 .132.584c-1.53 3.43-4.743 8.17-7.095 10.64a6.1 6.1 0 0 1-2.373 1.534c-.018.227-.06.538-.16.868-.201.659-.667 1.479-1.708 1.74a8.1 8.1 0 0 1-3.078.132 4 4 0 0 1-.562-.135 1.4 1.4 0 0 1-.466-.247.7.7 0 0 1-.204-.288.62.62 0 0 1 .004-.443c.095-.245.316-.38.461-.452.394-.197.625-.453.867-.826.095-.144.184-.297.287-.472l.117-.198c.151-.255.326-.54.546-.848.528-.739 1.201-.925 1.746-.896q.19.012.348.048c.062-.172.142-.38.238-.608.261-.619.658-1.419 1.187-2.069 2.176-2.67 6.18-6.206 9.117-8.104a.5.5 0 0 1 .596.04M4.705 11.912a1.2 1.2 0 0 0-.419-.1c-.246-.013-.573.05-.879.479-.197.275-.355.532-.5.777l-.105.177c-.106.181-.213.362-.32.528a3.4 3.4 0 0 1-.76.861c.69.112 1.736.111 2.657-.12.559-.139.843-.569.993-1.06a3 3 0 0 0 .126-.75zm1.44.026c.12-.04.277-.1.458-.183a5.1 5.1 0 0 0 1.535-1.1c1.9-1.996 4.412-5.57 6.052-8.631-2.59 1.927-5.566 4.66-7.302 6.792-.442.543-.795 1.243-1.042 1.826-.121.288-.214.54-.275.72v.001l.575.575zm-4.973 3.04.007-.005zm3.582-3.043.002.001h-.002z" />
+              </svg>
             </button>
             <button
               className={`tool-btn ${tool === "Eraser" ? "tool-btn--active" : ""}`}
               title="Eraser"
+              aria-label="Eraser"
               onClick={() => setTool("Eraser")}
             >
-              E
-            </button>
-            <button className="tool-btn" title="Color picker">
-              C
-            </button>
-            <button className="tool-btn" title="Toggle harmony overlay">
-              H
-            </button>
-            <button className="tool-btn" title="Toggle value map">
-              V
+              <svg className="tool-icon" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+                <path d="M8.086 2.207a2 2 0 0 1 2.828 0l3.879 3.879a2 2 0 0 1 0 2.828l-5.5 5.5A2 2 0 0 1 7.879 15H5.12a2 2 0 0 1-1.414-.586l-2.5-2.5a2 2 0 0 1 0-2.828zm2.121.707a1 1 0 0 0-1.414 0L4.16 7.547l5.293 5.293 4.633-4.633a1 1 0 0 0 0-1.414zM8.746 13.547 3.453 8.254 1.914 9.793a1 1 0 0 0 0 1.414l2.5 2.5a1 1 0 0 0 .707.293H7.88a1 1 0 0 0 .707-.293z" />
+              </svg>
             </button>
           </div>
 

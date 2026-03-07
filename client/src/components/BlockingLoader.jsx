@@ -10,19 +10,15 @@ export default function BlockingLoader({ open, text = "Analyzing your artwork...
       aria-live="polite"
       aria-busy="true"
     >
-      {/* gray overlay */}
-      <div className="absolute inset-0 bg-black/40" />
+      <div className="absolute inset-0 bg-black/55" />
 
-      {/* modal */}
-      <div className="relative w-[min(520px,92vw)] rounded-2xl bg-white p-6 shadow-xl">
-        <div className="text-lg font-semibold">{text}</div>
-        <div className="mt-2 text-sm text-gray-600">
-          This can take a few seconds. Please don’t close the page.
-        </div>
+      <div className="relative w-[min(520px,92vw)] rounded-2xl border border-gray-200 bg-white p-6 shadow-2xl">
+        <div className="text-center text-xl font-bold text-gray-900">{text}</div>
 
-        {/* indeterminate progress bar */}
-        <div className="mt-5 h-3 w-full overflow-hidden rounded-full bg-gray-200">
-          <div className="h-full w-1/3 animate-[progress_1.1s_infinite] rounded-full bg-gray-900" />
+        <div className="mt-6 flex justify-center">
+          <div className="h-3 w-[min(360px,82vw)] overflow-hidden rounded-full bg-gray-200">
+            <div className="h-full w-1/3 animate-[progress_1.1s_infinite] rounded-full bg-gray-900" />
+          </div>
         </div>
 
         <style>

@@ -1,11 +1,9 @@
 import { useState, useMemo } from "react";
 import "./styles/globals.css";
 import Work from "./pages/Work";
-import Blank from "./pages/Blank";
 import Upload from "./pages/Upload";
-import Mastery from "./pages/Mastery";
 
-const TAB_ORDER = ["Train", "Mastery", "Upload"];
+const TAB_ORDER = ["Train", "Upload"];
 
 export default function App() {
   const [tab, setTab] = useState("Train");
@@ -27,11 +25,6 @@ export default function App() {
       {tab === "Train" && (
         <div key={viewKey} className={`view view-slide-${direction}`}>
           <Work activeTab={tab} onTabChange={handleTabChange} />
-        </div>
-      )}
-      {tab === "Mastery" && (
-        <div key={viewKey} className={`view view-slide-${direction}`}>
-          <Mastery activeTab={tab} onTabChange={handleTabChange} />
         </div>
       )}
       {tab === "Upload" && (

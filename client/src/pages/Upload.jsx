@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Topbar from "../components/TopBar";
 
 const GRID_SIZE = 16;
-const MAJOR_ISSUE_MIN_SCORE = 0.5;
+const MAJOR_ISSUE_MIN_SCORE = 0.7;
 const MAJOR_ISSUE_PERCENTILE = 0.7;
 
 const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
@@ -128,7 +128,7 @@ export default function UploadPage({ activeTab = "Upload", onTabChange = () => {
 
     const pCutoff = percentile(rawScores, MAJOR_ISSUE_PERCENTILE);
     const cutoff = clamp(Math.max(MAJOR_ISSUE_MIN_SCORE, pCutoff), 0, 1);
-    const shown = rawScores.filter((s) => s >= cutoff).length;
+    const shown = rawScores.filter((s) => s > cutoff).length;
 
     return {
       cutoff,
@@ -144,7 +144,7 @@ export default function UploadPage({ activeTab = "Upload", onTabChange = () => {
     for (let r = 0; r < GRID_SIZE; r += 1) {
       for (let c = 0; c < GRID_SIZE; c += 1) {
         const score = clamp(Number(heatmap16x16[r]?.[c]) || 0, 0, 1);
-        if (score < majorIssueStats.cutoff) continue;
+        if (score <= majorIssueStats.cutoff) continue;
         flattened.push({ row: r, col: c, score });
       }
     }
@@ -199,7 +199,7 @@ export default function UploadPage({ activeTab = "Upload", onTabChange = () => {
     for (let r = 0; r < GRID_SIZE; r += 1) {
       for (let c = 0; c < GRID_SIZE; c += 1) {
         const rawScore = clamp(Number(heatmap16x16[r]?.[c]) || 0, 0, 1);
-        if (rawScore < majorIssueStats.cutoff) continue;
+        if (rawScore <= majorIssueStats.cutoff) continue;
 
         const severity = clamp(
           (rawScore - majorIssueStats.cutoff) / Math.max(1e-6, 1 - majorIssueStats.cutoff),
@@ -314,7 +314,7 @@ export default function UploadPage({ activeTab = "Upload", onTabChange = () => {
     const col = clamp(Math.floor(modelX / tile), 0, GRID_SIZE - 1);
     const row = clamp(Math.floor(modelY / tile), 0, GRID_SIZE - 1);
     const score = clamp(Number(heatmap16x16[row]?.[col]) || 0, 0, 1);
-    if (score < majorIssueStats.cutoff) {
+    if (score <= majorIssueStats.cutoff) {
       setHoverTile(null);
       return;
     }
@@ -388,15 +388,14 @@ export default function UploadPage({ activeTab = "Upload", onTabChange = () => {
           aria-live="polite"
           aria-busy="true"
         >
-          <div className="absolute inset-0 bg-black/40" />
-          <div className="relative w-[min(520px,92vw)] rounded-2xl bg-white p-6 shadow-xl">
-            <div className="text-lg font-semibold">Analyzing your artwork...</div>
-            <div className="mt-2 text-sm text-gray-600">
-              Please wait — this can take a few seconds.
-            </div>
+          <div className="absolute inset-0 bg-black/55" />
+          <div className="relative w-[min(520px,92vw)] rounded-2xl border border-gray-200 bg-white p-6 shadow-2xl">
+            <div className="text-center text-xl font-bold text-gray-900">Analyzing your artwork...</div>
 
-            <div className="mt-5 h-3 w-full overflow-hidden rounded-full bg-gray-200">
-              <div className="h-full w-1/3 animate-[progress_1.1s_infinite] rounded-full bg-gray-900" />
+            <div className="mt-6 flex justify-center">
+              <div className="h-3 w-[min(360px,82vw)] overflow-hidden rounded-full bg-gray-200">
+                <div className="h-full w-1/3 animate-[progress_1.1s_infinite] rounded-full bg-gray-900" />
+              </div>
             </div>
 
             <style>
@@ -521,7 +520,7 @@ export default function UploadPage({ activeTab = "Upload", onTabChange = () => {
                 </div>
                 {majorIssueStats ? (
                   <div className="mt-2 text-xs text-[var(--muted)]">
-                    Threshold: score >= {majorIssueStats.cutoff.toFixed(2)} ({majorIssueStats.shown}/{majorIssueStats.total} tiles shown)
+                    Threshold: score > {majorIssueStats.cutoff.toFixed(2)} ({majorIssueStats.shown}/{majorIssueStats.total} tiles shown)
                   </div>
                 ) : null}
 

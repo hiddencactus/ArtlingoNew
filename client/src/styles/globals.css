@@ -515,12 +515,18 @@ body {
   }
 }
 
-/* Tool buttons (B, E, C, H, V, L) */
+/* Tool buttons */
 .tool-btn {
   @apply flex h-10 w-10 items-center justify-center rounded-full text-xs font-semibold;
   background-color: var(--panel);
   color: var(--text);
   transition: background-color 120ms ease-out, transform 120ms ease-out;
+}
+
+.tool-icon {
+  width: 18px;
+  height: 18px;
+  display: block;
 }
 
 .tool-btn:hover {
