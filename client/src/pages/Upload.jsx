@@ -328,18 +328,8 @@ export default function UploadPage({ activeTab = "Upload", onTabChange = () => {
     return Number.isFinite(n) ? Math.max(0, Math.min(100, n)) : null;
   };
 
-  const overallScore = (() => {
-    const n = Number(backendResult?.overall);
-    if (Number.isFinite(n)) return Math.max(0, Math.min(100, n));
-
-    const l = getScore("line");
-    const v = getScore("value");
-    const h = getScore("harmony");
-    if ([l, v, h].every((x) => typeof x === "number")) {
-      return Math.round((l + v + h) / 3);
-    }
-    return null;
-  })();
+  // overallScore is not shown on the upload tab, so we can stub it out
+  const overallScore = null;
 
   const scoreLabel = (s) => {
     if (s == null) return "";
@@ -613,13 +603,7 @@ export default function UploadPage({ activeTab = "Upload", onTabChange = () => {
                     </div>
                   </div>
 
-                  {overallScore != null ? (
-                    <div className="rounded-2xl bg-white/10 px-4 py-3 text-right">
-                      <div className="text-xs text-[var(--muted)]">Overall</div>
-                      <div className="text-2xl font-bold">{overallScore}</div>
-                      <div className="text-xs text-[var(--muted)]">{scoreLabel(overallScore)}</div>
-                    </div>
-                  ) : null}
+
                 </div>
 
                 <div className="mt-4 grid gap-3 md:grid-cols-3">

@@ -40,10 +40,7 @@ export default function ArtResults({ result }) {
   const harmony = result?.metrics?.harmony ?? 0;
 
   
-  const overall =
-    typeof result?.overall === "number"
-      ? result.overall
-      : Math.round((line + value + harmony) / 3);
+  const overall = Math.round((line + value + harmony) / 3);
 
   return (
     <div className="mt-6 rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">

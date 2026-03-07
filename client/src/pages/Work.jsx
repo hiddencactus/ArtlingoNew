@@ -583,14 +583,11 @@ export default function Work({ activeTab = "Train", onTabChange = () => {} }) {
   };
 
   const overallScore = (() => {
-    const n = Number(suggestionResult?.overall);
-    if (Number.isFinite(n)) return Math.max(0, Math.min(100, n));
-
-    const l = getScore("line");
-    const v = getScore("value");
-    const h = getScore("harmony");
-    if ([l, v, h].every((x) => typeof x === "number")) {
-      return Math.round((l + v + h) / 3);
+    // always compute average of available metric scores
+    const keys = ["line", "value", "harmony"];
+    const vals = keys.map(getScore).filter((s) => typeof s === "number");
+    if (vals.length > 0) {
+      return Math.round(vals.reduce((a, b) => a + b, 0) / vals.length);
     }
     return null;
   })();
@@ -882,28 +879,7 @@ export default function Work({ activeTab = "Train", onTabChange = () => {} }) {
                   </div>
                 ) : suggestionResult?.success ? (
                   <>
-                    <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 12 }}>
-
-                      {overallScore != null ? (
-                        <div
-                          style={{
-                            background: "rgba(255,255,255,0.10)",
-                            padding: "10px 12px",
-                            borderRadius: 14,
-                            textAlign: "right",
-                            minWidth: 92,
-                          }}
-                        >
-                          <div style={{ fontSize: 10, opacity: 0.8 }}>Overall</div>
-                          <div style={{ fontSize: 22, fontWeight: 900, lineHeight: 1.1 }}>
-                            {overallScore}
-                          </div>
-                          <div style={{ fontSize: 10, opacity: 0.8 }}>
-                            {scoreLabel(overallScore)}
-                          </div>
-                        </div>
-                      ) : null}
-                    </div>
+                    
 
                     <div style={{ marginTop: 10, display: "grid", gap: 10 }}>
                       <Metric
